@@ -1,0 +1,794 @@
+---
+title: "Análisis de encuestas de hogares con R"
+subtitle: "Módulo 0: Introducción a R y dplyr"
+institute: "CEPAL - Unidad de Estadísticas Sociales"
+format: 
+  beamer: 
+    colortheme: dove
+    fonttheme: default
+    incremental: false
+    aspectratio: 1610
+    #theme: Berkeley
+    toc: true
+    slide_level: 2
+    #highlight: pygments
+Email: andres.gutierrez@cepal.org
+lang: es
+editor_options:
+  markdown:
+    wrap: 90
+---
+
+```{r setup, include=FALSE}
+library(printr)
+library(ggplot2)
+
+#knitr::opts_chunk$set(eval = FALSE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,cache = TRUE,cache.path = "00_Caches/01_Muestra/")
+ggplot2::theme_set(theme_bw())
+```
+
+# Conceptos básicos en encuestas de hogares
+
+## Motivación
+
+> Desde que se popularizaron las encuestas de hogares en 1940, se ha hecho evidente algunas tendencias que están ligadas a los avances tecnológicos en las agencias estadísticas y en la sociedad y se han acelerado con la introducción del computador.
+
+Gambino & Silva (2009)
+
+## Encuestas de Hogares y los ODS
+
+::: white
+Las encuestas de hogares son uno de los instrumentos más importantes para hacer seguimiento a los indicadores de los ODS en el marco de la agenda 2030.
+:::
+
+## Universo de estudio
+
+-   El término encuesta se encuentra directamente relacionado con una población finita compuesta de individuos a los cuales es necesario entrevistar.
+-   Este conjunto de unidades de interés recibe el nombre de *población objetivo* o *universo* y sobre ellas se obtiene la información de interés para el estudio.
+-   Por ejemplo, *la Encuesta Nacional de Empleo y Desempleo* de Ecuador define su población objetivo como todas las personas mayores de 10 años residentes en viviendas particulares en Ecuador.
+
+## Unidades de análisis
+
+-   Corresponden a los diferentes niveles de desagregación establecidos para consolidar el diseño probabilístico y sobre los que se presentan los resultados de interés.
+-   En México, la *Encuesta Nacional de Ingresos y Gastos de los Hogares* define como unidades de análisis el ámbito al que pertenece la vivienda, urbano alto, complemento urbano y rural.
+-   La *Gran Encuesta Integrada de Hogres* de Colombia tiene cobertura nacional y sus unidades de análisis están definidas por 13 grandes ciudades junto con sus áreas metropolitanas.
+
+## Unidades de muestreo
+
+-   El diseño de una encuesta de hogares en América Latina plantea la necesidad de seleccionar en varias etapas ciertas *unidades de muestreo* que sirven como medio para seleccionar finalmente a los hogares que participarán de la muestra.
+
+-   La *Pesquisa Nacional por Amostra de Domicilios* en Brasil se realiza por medio de una muestra de viviendas en tres etapas.
+
+## Unidades de muestreo en PNAD
+
+1.  Las unidades primarias de muestreo (UPM) son los municipios,
+2.  Las unidades secundarias de muestreo (USM) son los sectores censales, que conforman una malla territorial conformada en el último Censo Demográfico.
+3.  Las últimas unidades en ser seleccionadas son las viviendas.
+
+## Marcos de muestreo
+
+-   Para realizar el proceso de selección sistemática de los hogares es necesario contar con un marco de muestreo que sirva de *link* entre los hogares y las unidades de muestreo y que permita tener acceso a la población de interés.
+-   El marco de muestreo debe permitir identificar y ubicar a todos los hogares que conforman la población objetivo.
+-   Los marcos de muestreo más utilizados en este tipo de encuestas son de áreas geográficas que vinculan directamente a los hogares o personas.
+
+## Ejemplo de Costa Rica
+
+-   La *Encuesta Nacional de Hogares* de utiliza un marco muestral construido a partir de los censos nacionales de población y vivienda de 2011.
+-   Corresponde a un marco de áreas en donde sus unidades son superficies geográficas asociadas con las viviendas.
+-   Permite la definición de UPM con 150 viviendas en las zonas urbanas y 100 viviendas en las zonas rurales.
+-   El marco está conformado por 10461 UPM (64.5% urbanas y 35.5% rurales).
+
+## Objetivos de la PNAD
+
+-   La *Pesquisa Nacional por Amostra de Domicílios Contínua* es implementada cada trimestre por el *Instituto Brasileiro de Geografia e Estatística*.
+-   Su objetivo es producir información básica para el estudio de la evolución económica de Brasil y la publicación continua de indicadores demográficos.
+-   Los constructos de ingreso, gastos y empleo son evaluados de forma continua.
+-   Además evalúa temas de vivienda, migración de los individuos del hogar, trabajo infantil, fecundidad, salud y seguridad alimentaria, uso de las tecnologías de información, transferencias de renta, uso del tiempo, entre otros.
+
+
+# Manejando una base de datos con R {.build}
+
+## `R` como herramienta de análisis
+
+
+::: red
+Es posible utilizar **R** como herramienta de análisis de una base de datos que contenga información de una encuesta de hogares.
+:::
+
+## Cración de proyectos en `R`
+
+Para inicial un procesamiento en `R`, por experiencia y por una cultura de buenas practicas de programación se recomienda crear un proyecto en el cual tengamos disponibles toda nuestra información. A continuación se muestra el paso a paso para crear un proyecto dentro de `RStrudio`
+
+-   **Paso 1:** Abrir `RStudio`.
+-   **Paso 2:** ir a file -\> New Project
+
+![*Crear el proyecto*](Imagenes/01_ManejoBase/Proyecto1.png){width="250"}
+
+## *Paso 3:* Tipos de proyecto.
+
+En nuestro caso tomaremos *New Directory* 
+
+![*Tipos de proyectos*](Imagenes/01_ManejoBase/Proyecto2.png){width="350"}
+
+## *Paso 3:* Definir el tipo de proyecto.
+
+-   *New Directory*: Aquí `RStudio` nos brinda una variedad de opciones dependiendo las características del procesamiento que desea realizar.
+
+-   *Existing Directory*: Si contamos con algunos código desarrollados previamente, esta sería la opción a elegir.
+
+-   *Version Control*: Si contamos con cuenta en *Git* y deseamos tener una copia de seguridad podemos emplear esta opción.
+
+## *Paso 4:*
+
+Seleccionar el tipo de proyecto.
+
+![*Seleccionar el tipo de proyecto*](Imagenes/01_ManejoBase/Proyecto3.png){width="350"}
+
+## *Paso 5*
+
+Diligenciar el nombre del proyecto y la carpeta de destino.
+
+![*Nombre de proyecto*](Imagenes/01_ManejoBase/Proyecto4.png){width="300"} 
+
+El realizar esto pasos permite que todas rutinas creadas dentro del proyecto estén ancladas a la carpeta del proyecto.
+
+## Algunas librerías de interés
+
+Para analizar una base de datos, en `R` utilizaremos las siguientes librerías:
+
+-   `dplyr`, para manejar eficientemente las bases de datos.
+
+-   `readstata13` para leer las bases de datos de `STATA`.
+
+-   `survey` para analizar los datos de las encuestas.
+
+-   `srvyr` para utilizar los *pipe operators* en las consultas.
+
+-   `ggplot2` para generar los gráficos.
+
+-   `TeachingSampling` para seleccionar muestras.
+
+-   `samplesize4surveys` para calcular los tamaños de muestra.
+
+## Instalando las librerias
+
+Antes de poder utilizar las diferentes funciones que cada librería trae, es necesario descargarlas de Internet. El comando `install.packages` permite realizar esta tarea. Note que algunas librerías pueden depender de otras, así que para poder utilizarlas es necesario instalar también las dependencias.
+
+```{r, eval=FALSE}
+install.packages("dplyr")
+
+install.packages("readstata13")
+
+install.packages("ggplot2")
+
+install.packages("TeachingSampling")
+
+install.packages("samplesize4surveys")
+
+install.packages("survey")
+
+install.packages("srvyr")
+```
+
+## Cargando las librerias
+
+*Recuerde que es necesario haber instalado las librerías para poder utilizarlas*. Una vez instaladas hay que informarle al software que vamos a utilizarlas con el comando `library`.
+
+```{r, warning=FALSE, echo=TRUE, message=FALSE}
+rm(list = ls())
+
+library(dplyr)
+library(readstata13)
+library(survey)
+library(srvyr)
+library(ggplot2)
+library(TeachingSampling)
+library(samplesize4surveys)
+```
+
+
+## Leyendo la base de datos
+
+Para mostrar el uso de algunas funciones básicas en el análisis de datos emplearemos la base de datos `BigCity` disponible en la librería  `TeachingSampling` 
+
+```{r, warning=FALSE, echo=TRUE, message=FALSE, eval=FALSE}
+data("BigCity", package = "TeachingSampling")
+saveRDS(BigCity, "Imagenes/01_ManejoBase/BigCity.rds") 
+```
+
+## Leyendo la base de datos
+
+Para cargar la base de datos en R es necesario utilizar la función `readRDS`.
+
+```{r}
+data2 <- readRDS("Imagenes/01_ManejoBase/BigCity.rds")
+```
+
+## Registros y variables
+
+La función `nrow` identifica el número de registros (unidades efectivamente medidas) en la base de datos y la función `ncol` muestra el número de variables en la base de datos.
+
+```{r}
+nrow(data2)
+ncol(data2)
+dim(data2)
+```
+
+## Visor externo 
+
+La función `View` abre un visor externo y permite navegar por los registros de la base de datos
+
+```{r, eval=FALSE}
+View(data2)
+```
+
+## La base de datos
+
+![*Visor de bases de datos de RStudio*](Imagenes/01_ManejoBase/1_view.png){width="400"} 
+
+## Reconociendo las variables
+
+La función `names` identifica las variables de la base de datos.
+
+```{r, eval=FALSE}
+names(data2)
+```
+
+```{r, eval=TRUE, echo=FALSE}
+names(data2)
+```
+
+## Reconociendo las variables
+
+La función `str` muestra de manera compacta la estructura de un objeto y sus componentes, en este caso la base de datos.
+
+```{r, eval=FALSE}
+str(data2)
+```
+
+```{r, echo=FALSE}
+str(data2)
+```
+
+## Definir las regiones 
+
+La base de datos no cuenta con regiones geográficas definidas las vamos a construir agrupando algunos estratos, para ello usamos el siguiente código:  
+
+```{r}
+Region <- as.numeric(
+  gsub(pattern = "\\D",
+      replacement =  "", x = data2$Stratum))
+data2$Region <- 
+  cut(Region, breaks = 5,
+      labels = c("Norte","Sur","Centro","Occidente","Oriente"))
+```
+
+
+## Añadiendo el códigos a las regiones
+
+En algunas ocasiones es necesario re-codificar los niveles de los factores. El siguiente código permite generar los nombres de las regiones.
+
+
+```{r}
+data2$IDRegion <- factor(data2$Region, 
+ levels = c("Norte","Sur","Centro","Occidente","Oriente"), 
+ labels = c("01", "02","03","04","05"))
+```
+
+## Añadiendo el nombre corto a las regiones
+
+Para efectos de visualización en tablas y gráficos a veces conviene codificar los nombres de las variables.
+
+
+```{r}
+data2$Nom_corto <- factor(data2$Region, 
+ levels = c("Norte","Sur","Centro","Occidente","Oriente"), 
+ labels = c("N", "S","C","O","E"))
+```
+
+
+## El operador `pipe`
+
+`R` es un lenguaje de programación creado por estadísticos para estadísticos. Una de las contribuciones recientes es el desarrollo de los `pipelines` que permiten de una forma intuitiva generar consultas y objetos desde una base de datos.
+
+El operador más importante es `%>%` que le indica a `R` que el objeto que está a su izquierda debe ser un argumento del código a su derecha.
+
+## Número de registros
+
+El operador `%>%` indica que el objeto a su izquierda (la base de datos BigCity) debe ser un argumento para la función que está a su derecha (el número de filas).
+
+```{r}
+data2 %>% count()
+```
+
+
+## Verbos que debemos aprender
+
+-   **filter**: mantiene un criterio de filtro sobre alguna variable o mezcla de variables.
+
+-   **select**: selecciona columnas por nombre.
+
+-   **arrange**: re-ordena las filas de la base de datos.
+
+-   **mutate**: añade nuevas variables a la base de datos.
+
+-   **summarise**: reduce variables a valores y los presenta en una tabla.
+
+-   **group_by**: ejecuta funciones y agrupa el resultado por las variables de interés.
+
+## Utilizando `pipes`
+
+El número de hogares en la base de datos
+
+```{r,eval=FALSE}
+data2[,1:5] %>% slice(1:8)
+```
+
+\tiny
+```{r,echo=FALSE}
+data2[,1:5] %>% slice(1:8)
+```
+\normalsize
+El número de registros (personas) en la base de datos
+
+```{r}
+data2 %>% count()
+```
+
+## **filter**
+
+-   Las encuestas de hogares muchas veces recopilan información a nivel de viviendas, hogares y personas.
+
+-   Las bases de datos de datos que están disponibles en `BADEHOG` están a nivel de persona.
+
+- Las encuestas se pueden analizar para un región de interés
+
+## **filter** para region
+
+El siguiente código filtra la base de datos por la condición de región
+
+```{r}
+dataregion1 <- data2 %>% filter(IDRegion == "01")
+
+dataregion2 <- data2 %>% filter(Region == "Norte") 
+
+# View(datahogar1)
+
+# View(datahogar2)
+```
+
+## **filter** para Zona
+
+El siguiente código filtra la base de datos por la ubicación de la persona en el Zona rural y urbana.
+
+```{r}
+dataurbano <- data2 %>% 
+  filter(Zone == "Urban")
+
+datarural <- data2 %>% 
+  filter(Zone == "Rural") 
+
+# View(dataurbano)
+# View(datarural)
+```
+
+## **filter** para ingresos
+
+El siguiente código filtra la base de datos por personas de ingresos mensuales bajos y altos.
+
+```{r}
+dataingreso1 <- data2 %>% 
+  filter(Income %in% c(50, 100))
+
+dataingreso2 <- data2 %>% 
+  filter(Income %in% c(1000, 2000))
+
+# View(dataingreso1)
+# View(dataingreso2)
+```
+
+## **select** para reducción de columnas
+
+El siguiente código reduce la base de datos original utilizando la función `select`.
+
+```{r}
+datared <- data2 %>% select(`HHID`, `PSU`,
+                            `Region`, `Stratum`)
+
+datablue <- data2 %>% select(PersonID, Age, 
+                             Sex, Income)
+
+# View(datared)
+# View(datablue)
+```
+
+## **select** para reducción de columnas
+
+El siguiente código reduce la base de datos original utilizando la función `select`.
+
+```{r, eval=FALSE}
+datagrey <- data2 %>% select(-MaritalST, -IDRegion)
+datagrey %>% View()
+```
+
+## **arrange** para ordenar la base
+
+El siguiente código ordena la base de datos original utilizando la función `arrange`.
+
+```{r}
+datadog <- datablue %>% arrange(Income)
+datadog %>% head()
+```
+
+## **arrange** sobre más variables
+
+Es posible utilizar la función `arrange` para hacer ordenamientos más complicados.
+
+```{r}
+datablue %>% arrange(Sex, Age) %>% head()
+```
+
+## **arrange** sobre más variables
+
+Es posible utilizar la función `arrange` junto con la opción `desc()` para que el ordenamiento sea descendente.
+
+```{r}
+datablue %>% arrange(desc(Age)) %>% head()
+```
+
+## **mutate** para crear nuevas variables
+
+Esta función crea nuevas variables en la base de datos que pueden ser guardadas como un objeto diferente en `R`.
+
+```{r}
+datablue2 <- datablue %>% 
+  mutate(Income2 = 2 * Income)
+datablue2 %>% head()
+```
+
+## **mutate** sistemático
+
+La función `mutate` reconoce sistemáticamente las variables que van siendo creadas de manera ordenada.
+
+```{r}
+datacat <- datablue %>% 
+  mutate(Income2 = 2 * Income,
+         Income4 = 2 * Income2)
+datacat %>% head()
+```
+
+## Definir categorias para una variable
+
+A veces, resulta fundamental categorizar variables como la edad para agilizar el análisis. En este escenario, optaremos por emplear la función `case_when`, la cual posibilita la evaluación de distintas condiciones para una variable particular.
+
+```{r}
+data2 <- data2 %>% mutate(
+  CatAge = case_when(
+    Age <= 5 ~ "0-5",
+    Age <= 15 ~ "6-15",
+    Age <= 30 ~ "16-30",
+    Age <= 45 ~ "31-45",
+    Age <= 60 ~ "46-60",
+    TRUE ~ "Más de 60"
+  ),
+  CatAge = factor(
+    CatAge,
+    levels = c("0-5", "6-15", "16-30", "31-45", "46-60", "Más de 60"),
+    ordered = TRUE
+  )
+)
+```
+
+
+## Número de registros por región
+
+El siguiente código permite generar el número de registros en cada una de las regiones de BigCity. El comando `group_by` agrupa los datos por región, el comando `summarise` hace los cálculos requeridos y el comando `arrange` ordena los resultados
+
+```{r eval=FALSE}
+data2 %>% 
+  group_by(Region) %>% 
+  summarise(n = n()) %>% arrange(desc(n))
+```
+
+## Número de registros por región
+
+El resultado de la anterior consulta es el siguiente:
+
+```{r echo=FALSE}
+data2 %>% 
+  group_by(Region) %>% 
+  summarise(n = n()) %>% arrange(desc(n)) 
+```
+
+## Número de registros por sexo
+
+El siguiente código permite generar el Número de registros discriminado por el sexo.
+
+```{r}
+data2 %>% 
+  group_by(Sex) %>% 
+  summarise(n = n()) %>% arrange(desc(n)) 
+```
+
+## Número de registros por área geográfica
+
+El siguiente código reporta el Número de registros en el área urbana y rural.
+
+```{r}
+data2 %>% 
+  group_by(Zone) %>% 
+  summarise(n = n()) %>% arrange(desc(n)) 
+```
+
+## Número de registros estado de ocupación
+
+El siguiente código reporta el Número de registros clasificado Ocupado, desocupado e inactivo
+
+```{r}
+data2 %>% 
+  group_by(Employment) %>% 
+  summarise(n = n()) %>% arrange(desc(n)) 
+```
+
+
+# La muestra
+
+
+## Bibliografía y referencias
+
+- Kish, L. (1965) *Survey Sampling*. John Wiley and Sons. 
+
+- Cochran, W. G. (1977) *Sampling Techniques*. John Wiley and Sons. 
+
+- Särndal, et. al. (2003) *Model-assisted Survey Sampling*. Springer.
+
+- Gutiérrez, H. A. (2016)  *Estrategias de muestreo: diseño de encuestas y estimación de parámetros*. Ediciones de la U.
+
+- Gutiérrez, H. A. (2017)  `TeachingSampling`. *R package*.
+
+
+## Muestreo en dos etapas estratificado
+
+- La teoría discutida en las secciones anteriores es aplicable cuando las unidades primarias de muestreo  son seleccionadas dentro de un estrato. 
+
+- No hay nuevos principios de estimación o diseño involucrado en el desarrollo de esta estrategia de muestreo.
+
+## Muestreo en dos etapas estratificado
+
+- Se supone que el muestreo en cada estrato respeta el principio de la independencia. 
+
+- Las estimaciones del total, así como el cálculo y estimación de la varianza son simplemente resultado de añadir o sumar para cada estrato la respectiva cantidad.
+
+## Muestreo en dos etapas estratificado
+
+- Dentro de cada estrato $U_h$ $h=1,\ldots, H$ existen $N_{Ih}$ unidades primarias de muestreo, de las cuales se selecciona una muestra $s_{Ih}$ de $n_{Ih}$ unidades mediante un diseño de muestreo aleatorio simple. 
+
+- Suponga, además que el sub-muestreo dentro de cada unidad primaria seleccionada es también aleatorio simple. 
+
+- Para cada unidad primaria de muestreo seleccionada $i\in s_{Ih}$ de tamaño $N_i$ se selecciona una muestra $s_i$ de elementos de tamaño $n_i$.
+
+## Muestreo en dos etapas estratificado
+
+Para utilizar los prinicpios de estimación del último conglomerado en este diseño particular se definen las siguientes cantidades:
+
+1. $d_{I_i} = \dfrac{N_{Ih}}{n_{Ih}}$, que es el factor de expansión de la $i$-ésima UPM en el estrato $h$.
+
+2. $d_{k|i} = \dfrac{N_{i}}{n_{i}}$, que es el factor de expansión del $k$-ésimo hogar para la $i$-ésima UPM.
+
+3. $d_k = d_{I_i} \times d_{k|i} = \dfrac{N_{Ih}}{n_{Ih}} \times \dfrac{N_{i}}{n_{i}}$, que es el factor de expansión final del $k$-ésimo elemento para toda la población $U$.
+
+## Práctica en `R`
+```{r}
+data('BigCity')
+
+ FrameI <- BigCity %>% group_by(PSU) %>%
+ summarise(Stratum = unique(Stratum),
+           Persons = n(),
+           Income = sum(Income),
+           Expenditure = sum(Expenditure))
+             
+attach(FrameI)
+```
+
+## Práctica en `R`
+
+```{r, eval=FALSE}
+head(FrameI, 10)
+```
+
+```{r, echo=FALSE}
+head(FrameI, 10)
+```
+
+## Práctica en `R`
+```{r}
+sizes = FrameI %>% group_by(Stratum) %>%
+        summarise(NIh = n(),
+        nIh = 2,
+        dI = NIh/nIh)
+        
+NIh <- sizes$NIh
+nIh <- sizes$nIh
+```
+
+## Práctica en `R`
+
+
+```{r}
+head(sizes, 10)
+```
+
+## Práctica en `R`
+
+
+```{r}
+set.seed(1234)
+samI <- S.STSI(Stratum, NIh, nIh)
+UI <- levels(as.factor(FrameI$PSU))
+sampleI <- UI[samI]
+
+FrameII <- left_join(sizes, 
+            BigCity[which(BigCity$PSU %in% sampleI), ])
+attach(FrameII)
+```
+
+## Práctica en `R`
+
+
+```{r}
+head(FrameII, 10) %>% select(Stratum:Zone)
+```
+
+## Práctica en `R`
+```{r}
+HHdb <- FrameII %>% 
+        group_by(PSU) %>%
+        summarise(Ni = length(unique(HHID)))
+        
+Ni <- as.numeric(HHdb$Ni)
+ni <- ceiling(Ni * 0.1)
+sum(ni)
+```
+
+## Práctica en `R`
+
+
+```{r}
+sam = S.SI(Ni[1], ni[1])
+
+clusterII = FrameII[which(FrameII$PSU == sampleI[1]),]
+
+sam.HH <- data.frame(HHID = unique(clusterII$HHID)[sam])
+
+clusterHH <- left_join(sam.HH, clusterII, by = "HHID")
+
+clusterHH$dki <- Ni[1] / ni[1]
+
+clusterHH$dk <- clusterHH$dI * clusterHH$dki
+
+sam_data = clusterHH
+```
+
+## Práctica en `R`
+
+
+```{r}
+head(sam_data, 10) %>% select(Stratum:Zone)
+```
+
+## Práctica en `R`
+
+
+```{r}
+set.seed(1234)
+for (i in 2:length(Ni)) {
+  sam = S.SI(Ni[i], ni[i])
+  clusterII = FrameII[which(FrameII$PSU == sampleI[i]), ]
+  
+  sam.HH <- data.frame(HHID = unique(clusterII$HHID)[sam])
+  clusterHH <- left_join(sam.HH, clusterII, by = "HHID")
+  
+  clusterHH$dki <- Ni[i] / ni[i]
+  clusterHH$dk <- clusterHH$dI * clusterHH$dki
+  
+  data1 = clusterHH
+  sam_data = rbind(sam_data, data1)
+}
+encuesta <- sam_data
+```
+
+## Práctica en `R`
+```{r}
+dim(encuesta)
+sum(encuesta$dk)
+nrow(BigCity)
+attach(encuesta)
+
+```
+
+## Práctica en `R`
+Definir diseño muestral con la librería `srvyr`
+```{r}
+library(srvyr)
+
+diseno <- encuesta %>%
+  as_survey_design(
+    strata = Stratum,
+    ids = PSU,
+    weights = dk,
+    nest = T
+  )
+
+sum(weights(diseno))
+```
+
+
+## Práctica en `R`
+Calibrando los pesos muestrales, para ello empleamos la función `calibrate` de la librería `survey`
+\scriptsize
+```{r}
+library(survey)
+totales <- colSums(
+  model.matrix(~ -1 + Zone:Sex, BigCity)) # Obtener totales Pob. 
+diseno_cal <- calibrate(
+  diseno, ~-1 + Zone:Sex, totales, calfun = "linear")  
+
+sum(weights(diseno))
+sum(weights(diseno_cal))
+nrow(BigCity)
+encuesta$wk <- weights(diseno_cal)
+```
+
+
+## Práctica en `R`
+
+```{r, echo=FALSE, eval=FALSE}
+# Abrir dispositivo gráfico
+jpeg("Imagenes/01_ManejoBase/03_hist_dk_wk.jpeg",
+    width = 1200, height = 600)
+
+# Dibujar los histogramas en dos paneles
+par(mfrow = c(1, 2))
+hist(encuesta$dk, main = "Histograma de dk", xlab = "dk")
+hist(encuesta$wk, main = "Histograma de wk", xlab = "wk")
+
+# Cerrar dispositivo
+dev.off()
+
+```
+
+\scriptsize
+```{r, fig.align='center',  out.width="75%", eval=FALSE}
+par(mfrow = c(1,2))
+hist(encuesta$dk) ; hist(encuesta$wk)
+```
+
+![*Histograma de los pesos*](Imagenes/01_ManejoBase/03_hist_dk_wk.jpeg){width="400"}
+
+## Práctica en `R`
+
+
+```{r, fig.align='center',  out.width="80%"}
+plot(encuesta$dk,encuesta$wk)
+```
+
+
+## Práctica en `R`
+
+```{r, fig.align='center',  out.width="80%"}
+boxplot(encuesta$wk ~ encuesta$Stratum)
+```
+
+## Práctica en `R`
+
+```{r, eval=FALSE}
+saveRDS(object = encuesta, file = "../Data/encuesta.rds")
+```
+
+
+## ¡Gracias!
+
+::: yellow
+*Email*: [andres.gutierrez\@cepal.org](mailto:andres.gutierrez@cepal.org){.email}
+:::
