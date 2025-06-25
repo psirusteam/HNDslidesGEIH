@@ -2,3 +2,7 @@
 .Rhistory
 .RData
 .Ruserdata
+.dta
+data
+ENIGH_HND_Hogar.rds
+ENIGH_HND_Pers.rds
