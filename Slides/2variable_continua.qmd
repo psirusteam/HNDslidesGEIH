@@ -1,0 +1,1126 @@
+---
+title: "Análisis de encuestas de hogares con R"
+subtitle: "Módulo 1: Análisis de variables continuas"
+author: |
+  | Andrés Gutiérrez.
+  | Stalyn Guerrero 
+institute: "CEPAL - Unidad de Estadísticas Sociales"
+format: 
+  beamer: 
+    colortheme: dove
+    fonttheme: default
+    incremental: false
+    aspectratio: 1610
+    #theme: Berkeley
+    toc: true
+    slide_level: 2
+    #highlight: pygments
+Email: andres.gutierrez@cepal.org
+lang: es
+editor_options:
+  markdown:
+    wrap: 90
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE, warning = FALSE, message = FALSE,echo = TRUE,
+                      error = FALSE, cache.path = "00_Caches/02_var_continuas/")
+options(digits = 4)
+library (survey)
+library(srvyr)
+library(convey)
+library(TeachingSampling)
+library(printr)
+library(kableExtra)
+tba <- function(x){
+ x %>%  kable(digits = 10,
+        format.args = list(scientific = FALSE), 
+        format = "latex") %>% 
+  kable_styling(full_width = FALSE)
+}
+```
+
+# Introducción
+
+## Motivación 
+
+Los desarrollos estadísticos están en permanente evolución, surgiendo nuevas metodologías y desarrollando nuevos enfoquen el análisis de encuestas. Estos desarrollos parten de la academia, luego son adoptados por las empresas (privadas o estatales) y entidades estatales. Las cuales crean la necesidad que estos desarrollos sean incluidos en software estadísticos licenciados. Proceso que puede llevar mucho tiempo.
+
+## Motivación 
+
+Algunos investigadores para acortar los tiempos y poner al servicio de la comunidad sus descubrimientos y desarrollos, hacen la implementasión de sus metodología en paquetes estadísticos de código abierto como **R** o **Python**. Teniendo **R** un mayor número de desarrollos en el procesamiento de las encuestas.
+
+## Motivación 
+
+Dentro del software *R* se disponen de múltiples librería para el prcesamiento de encuestas, estas varian dependiendo el enfoque de programación desarrollado por el autor o la necesidad que se busque suplir. En esta presentación nos centraremos en las libreria `survey` y `srvyr`. Se incluiran más librerías de acuerdo a las necesidad se presente. 
+
+
+# Lectura y procesamientos de encuestas con `R`
+
+## Lectura de la base
+
+La base de datos (tablas de datos) puede estar disponible en una variedad de formatos (.`xlsx`, `.dat`, `.cvs`, `.sav`, `.txt`, ...), sin embargo, por experiencia es recomendable realizar la lectura de cualesquiera de estos formatos y proceder inmediatamente a guardarlo en un archivo de extensión **.rds**, la cual es nativa de `R.` El hacer esta acción reduce considerablemente los tiempo de cargue de la base de datos.
+
+### Sintaxis
+
+```{r}
+encuesta <- readRDS("Imagenes/02_variable_continua/ENIGH_HND_Pers.rds")
+```
+
+
+## Definir diseño de la muestra con `srvyr`
+La libreria `srvyr` surge como un complemento para `survey`. Estas librerías permiten definir objetos  tipo "**survey.design**" a los que se aplican los métodos "**survey.design**" complementados con la programación de tubería ( %>% ) del paquete `tidyverse`. 
+
+## Cómo definir un objeto *survey.design*
+Para el desarrollo  de la presentación se define el diseño muestral con la función `as_survey_design`. 
+
+```{r}
+# En caso de tener estratos con una muestra.
+# Calcula la varianza centrada en la media de la pob.
+options(survey.lonely.psu = "adjust") 
+library(srvyr)
+
+diseno <- encuesta %>% # Base de datos.
+  mutate(estrato = haven::as_factor(F1_A0_ESTRATO), 
+         Sexo = F2_A6_P3_SEXO, 
+         Area = F1_A0_AREA) %>% 
+  as_survey_design(
+    strata = estrato,  # Id de los estratos.
+    ids = F1_A0_UPM,         # Id para las observaciones.
+    weights = Factor,      # Factores de expansión. 
+    nest = TRUE           # Valida el anidado dentro del estrato
+  )
+
+```
+
+
+# Análisis gráfico
+
+## Histograma ponderado para la variable ingreso
+A continuación observan la sintaxis para crear una histograma de la variable ingreso haciendo uso la función `svyhist` de la librería `survey`  
+
+```{r, hist1, eval = FALSE}
+# 14 registros con valores menores que cero
+svyhist(
+  ~ YEMPLEO, #	Ingreso del empleo, ocupación principal secundaria y otras
+  diseno %>% filter(YEMPLEO < 40000, YEMPLEO > 0),
+  main = "Ingreso del empleo, ocupación principal secundaria y otras",
+  col = "grey80", breaks = 50,
+  xlab = "Ingreso",
+  probability = FALSE
+)
+
+```
+
+## Histograma ponderado para la variable ingreso
+
+```{r, hist1, echo = FALSE, eval = TRUE}
+```
+
+## Comparación de histogramas
+
+```{r, hist2, eval=FALSE}
+par(mfrow = c(1,2))
+svyhist(   ~ YEMPLEO,
+  diseno  %>% filter(YEMPLEO < 40000, YEMPLEO > 0),
+  main = "Ponderado", col = "green", breaks = 50
+)
+hist( encuesta$YEMPLEO[encuesta$YEMPLEO < 40000 &
+                         encuesta$YEMPLEO > 0],
+  main = "Sin ponderar", xlab = "YDISPONIBLE_PER",
+  col = "red", prob = TRUE, breaks = 50
+)
+
+```
+
+
+## Comparación de histogramas
+
+```{r, hist2, echo = FALSE, eval = TRUE,  out.width="80%", fig.align="center"}
+```
+
+## Dividiendo la muestra en Sub-grupos
+
+En ocasiones se desea realizar estimaciones por sub-grupos de la población, en este caso se extraer 4 sub-grupos de la encuesta.
+
+```{r}
+sub_Urbano <- diseno %>%  filter(Area == 1) # 1. Urbana
+sub_Rural  <- diseno %>%  filter(Area == 2) # 2. Rural
+sub_Mujer  <- diseno %>%  filter(Sexo == 2) # 2. Mujer
+sub_Hombre <- diseno %>%  filter(Sexo == 1) # 1. Hombre
+```
+
+## Histograma ponderado en sub-grupos
+La sintaxis incluye un filtro de las personas mayores a 18 años
+\scriptsize
+```{r, hist3, eval=FALSE}
+par(mfrow = c(1,2))
+svyhist(
+  ~ YEMPLEO ,
+  design = sub_Mujer %>% filter(YEMPLEO < 40000, YEMPLEO > 0,
+                                F2_A6_P4_EDAD >= 18),
+  main = "Mujer",
+  breaks = 30,
+  col = "grey80",
+  xlab = "Ingreso"
+)
+
+
+svyhist(
+  ~ YEMPLEO ,
+  design =sub_Hombre %>% filter(YEMPLEO < 40000, YEMPLEO > 0,
+                                F2_A6_P4_EDAD >= 18),
+  main = "Hombre",
+  breaks = 30,
+  col = "grey80",
+  xlab = "Ingreso"
+)
+
+```
+
+## Histograma ponderado en sub-grupos
+
+```{r, hist3, echo = FALSE, eval = TRUE, out.width="70%", fig.align="center"}
+```
+
+## Boxplot ponderado del ingreso por sub-grupos
+
+```{r,box1, echo = TRUE, eval = FALSE}
+par(mfrow = c(1,2))
+svyboxplot(
+  YEMPLEO ~1 ,
+  sub_Urbano %>% filter(YEMPLEO < 40000, YEMPLEO > 0),
+  col = "grey80",
+  ylab = "Ingreso",
+  xlab = "Urbano")
+
+svyboxplot(
+  YEMPLEO ~ 1 ,
+  sub_Rural%>% filter(YEMPLEO < 40000, YEMPLEO > 0),
+  col = "grey80",
+  ylab = "Ingreso",
+  xlab = "Rural"
+)
+```
+
+## Boxplot ponderado del ingreso por sub-grupos
+
+```{r,box1, echo = FALSE, eval = TRUE}
+```
+
+# Estimaciones puntuales. 
+
+## Introducción 
+
+Después de realizar el análisis gráfico de las tendencias de las variables continuas, 
+es necesarios obtener las estimaciones puntuales de la variables.  Los cuales son obtenidos 
+de forma general o desagregado por niveles, de acuerdo con las necesidades de la investigación. 
+
+## Estimación puntual 
+
+- El proceso implica utilizar técnicas avanzadas como los estimadores generales de regresión (GREG) y métodos de calibración.
+
+- **Valiente et al. (2000)** desarrolló una librería en *S-plus* que permite llevar a cabo estos procedimientos en R **(Valliant et al., 2013)**.
+
+- Para estimar el total en un diseño con estratificación y muestreo por conglomerados, se utiliza la fórmula:  
+
+  $$\hat{Y}_{\omega} = \sum_{h=1}^{H}\sum_{\alpha=1}^{a_{h}}\sum_{i=1}^{n_{h\alpha}}\omega_{h\alpha i}y_{h\alpha i}$$.
+
+## Estimación de la varianza
+La varianza estimada para este estimador es compleja y se calcula de la siguiente manera: 
+
+  $$var\left(\hat{Y}_{\omega}\right) = \sum_{h=1}^{H}\frac{a_{h}}{\left(a_{h}-1\right)}\left[\sum_{\alpha=1}^{a_{h}}\left(\sum_{i=1}^{n_{h\alpha}}\omega_{h\alpha i}y_{h\alpha i}\right)^{2}-\frac{\left({\displaystyle \sum_{\alpha=1}^{a_{h}}}\omega_{h\alpha i}y_{h\alpha i}\right)^{2}}{a_{h}}\right]$$.
+  
+## Estimación de totales e intervalos de confianza del ingreso
+La estimación del total se mediante la función `svytotal` y el 
+intervalos de confianza con la función `confint` de la librería `survey`.
+
+```{r}
+svytotal(~YEMPLEO, diseno, deff=T) %>%
+  data.frame() %>% tba()
+confint(svytotal (~YEMPLEO, diseno, deff=T)) %>% tba()
+
+```
+
+
+## Estimación de totales e intervalos de confianza del gasto
+
+```{r}
+svytotal ( ~ COSTOALQUI, diseno, deff = T, na.rm = TRUE) %>%
+  data.frame() %>% tba()
+confint(svytotal (
+  ~ COSTOALQUI,
+  diseno,
+  deff = T,
+  na.rm = TRUE
+)) %>% tba()
+
+```
+
+## Estimación de totales por sub-grupos
+En esta oportunidad se hace uso de la función `cascade`de la libraría `srvyr`, la cual permite agregar
+la suma de las categorías al final tabla. 
+La función `group_by` permite obtener resultados agrupados por los niveles de interés. 
+
+```{r}
+diseno %>% mutate(Sexo = haven::as_factor(Sexo)) %>%
+  group_by(Sexo) %>%
+  cascade(Total = survey_total(YEMPLEO, level = 0.95,
+                               vartype =  c("se", "ci")),
+          .fill = "Total ingreso") %>% tba()
+```
+## Estimación de la media e intervalo de confianza 
+
+- La estimación de la media poblacional es un parámetro crucial en encuestas de hogares, especialmente en el caso de indicadores como los ingresos medios por hogar.
+
+- Según **Gutiérrez (2016)**, se puede expresar un estimador de la media poblacional como una razón no lineal de dos totales poblacionales finitos estimados:
+  
+  $$\bar{Y}_{\omega} = \frac{\sum_{h=1}^{H}\sum_{\alpha=1}^{a_{h}}\sum_{i=1}^{n_{h\alpha}}\omega_{h\alpha i}y_{h\alpha i}}{\sum_{h=1}^{H}\sum_{\alpha=1}^{a_{h}}\sum_{i=1}^{n_{h\alpha}}\omega_{h\alpha i}} = \frac{\hat{Y}}{\hat{N}}$$.
+
+## Estimación de la varianza 
+
+- Calcular la varianza de este estimador es complejo, ya que no existe una fórmula cerrada para ello debido a su naturaleza no lineal.
+
+- Una fórmula insesgada para la varianza es:
+
+  $$var\left(\bar{Y}_{\omega}\right) \approx \frac{var\left(\hat{Y}\right)+\bar{Y}_{\omega}^{2}\times var\left(\hat{N}\right)-2\times\bar{Y}_{\omega}\times cov\left(\hat{Y},\hat{N}\right)}{\hat{N}^{2}}$$.
+  
+- Estos cálculos pueden realizarse en R utilizando funciones incorporadas, ya que implican componentes complejos como la covarianza entre el total estimado y el tamaño poblacional estimado.
+
+
+## Estimación de la media e intervalo de confianza del ingreso
+
+Un resultado más interesante para las variables ingreso y gasto es el promedio de la variable. 
+
+```{r}
+svymean(~YEMPLEO, diseno, deff=T) %>% 
+  data.frame() %>% tba()
+confint(svymean (~YEMPLEO, diseno, deff=T)) %>% tba()
+```
+
+## Estimación de la media e intervalo de confianza del gasto
+
+```{r}
+svymean (~COSTOALQUI, diseno, deff=T) %>% 
+  data.frame() %>% tba()
+confint(svymean (~COSTOALQUI, diseno, deff=T))%>% tba()
+
+```
+
+## Estimación de la media por sub-grupos
+
+La función `cascade` regresa el resultado promedio ignorando los niveles. 
+
+```{r}
+diseno <- diseno %>%
+  mutate(Sexo = haven::as_factor(F2_A6_P3_SEXO))
+diseno %>% group_by(Sexo) %>%
+  cascade(
+    Media = survey_mean(
+      COSTOALQUI, level = 0.95,na.rm = TRUE,
+       vartype =  c("se", "ci")), 
+        .fill = "El gasto medio"  ) %>%
+  arrange(desc(Sexo)) %>% tba() # Ordena la variable. 
+```
+
+## Estimación de la media por sub-grupos
+
+```{r}
+diseno <- diseno %>%
+  mutate(Area = haven::as_factor(F1_A0_AREA))
+diseno %>% group_by(Area) %>%
+  cascade(
+    Media = survey_mean(
+      COSTOALQUI, level = 0.95, na.rm = TRUE,
+       vartype =  c("se", "ci")), 
+        .fill = "El gasto medio")%>%
+  arrange(desc(Area))  %>% tba()
+
+
+```
+
+## Estimación de medias por sub-grupos
+
+
+
+```{r}
+diseno %>% group_by(Area, Sexo) %>%
+  cascade(
+    Media = survey_mean(
+      COSTOALQUI, level = 0.95,na.rm = TRUE,
+       vartype =  c("se", "ci")),
+        .fill = "El gasto medio") %>%
+  arrange(desc(Area), desc(Sexo)) %>%
+  data.frame()  %>% tba()
+
+```
+
+## Estimación de medidas de dispersión y localización
+
+- Es fundamental estimar medidas de dispersión en encuestas de hogares para comprender la variabilidad de las variables estudiadas.
+
+- Una medida común es la desviación estándar, que permite medir qué tan disímiles son los ingresos medios de los hogares en un país.
+
+- El estimador de la desviación estándar se puede expresar como:
+
+  $$s\left(y\right)_{\omega} = \frac{\sum_{h=1}^{H}\sum_{\alpha=1}^{a_{h}}\sum_{i=1}^{n_{h\alpha}}\omega_{h\alpha i}\left(y_{h\alpha i}-\bar{Y}_{\omega}\right)^{2}}{\sum_{h=1}^{H}\sum_{\alpha=1}^{a_{h}}\sum_{i=1}^{n_{h\alpha}}\omega_{h\alpha i}-1}$$.
+  
+
+## Estimación de la desviación estándar de los ingresos por sub-grupo
+
+La estimación de la desviación estándar se obtiene con `survey_var` 
+
+```{r}
+(tab_sd <- diseno %>% group_by(Area) %>% 
+   summarise(Sd = sqrt(
+  survey_var(
+    YEMPLEO,
+    level = 0.95,
+    vartype =  c("se", "ci"),
+  ) )))  %>% tba()
+```
+
+## Estimación de la desviación estándar de los ingresos por sub-grupo
+
+```{r}
+(tab_sd <- diseno %>% group_by(Area, Sexo) %>% 
+   summarise(Sd = sqrt(
+  survey_var(
+    YEMPLEO,
+    level = 0.95,
+    vartype =  c("se", "ci"),
+   )
+))) %>% data.frame() %>% tba()
+
+```
+
+
+## Estimación de la mediana 
+
+- Las medidas de posición no central, como la mediana, cuartiles y percentiles, son fundamentales en encuestas de hogares para comprender la distribución de las variables estudiadas.
+
+- La mediana es una medida robusta de tendencia central que divide la población en dos partes iguales.
+
+- La estimación de percentiles es esencial para definir políticas públicas, por ejemplo, para impuestos o subsidios.
+
+- Los cuantiles se estiman utilizando la función de distribución acumulativa (CDF). El cuantil $q$-ésimo es el valor de y tal que la CDF es mayor o igual a $q$.
+
+\begin{eqnarray*}
+F\left(x\right) & = & \frac{{\displaystyle \sum_{i=1}^{N}}I\left(y_{i}\leq x\right)}{N}
+\end{eqnarray*}
+
+  Donde, $I\left(y_{i}\leq x\right)$ es una variable indicadora la cual es igual a 1 si $y_{i}$ es menor o igual a un valor específico $x$, 0 en otro caso.
+
+## EStimación de a función de distribución acumulativa (CDF)
+
+Un estimador de la CDF en un diseño complejo (encuesta de hogares) de tamaño $n$ está dado por:
+
+\begin{eqnarray*}
+\hat{F}\left(x\right) & = & \frac{\sum_{h=1}^{H}\sum_{\alpha=1}^{a_{h}}\sum_{i=1}^{n_{h\alpha}}\omega_{h\alpha i}I\left(y_{i}\leq x\right)}{\sum_{h=1}^{H}\sum_{\alpha=1}^{a_{h}}\sum_{i=1}^{n_{h\alpha}}\omega_{h\alpha i}}
+\end{eqnarray*}
+
+El cuantil q-ésimo de una variable $y$ es el valor más pequeño de $y$ tal que la CDF de la población es mayor o igual que $q$. Como es bien sabido, la mediana es aquel valor donde la CDF es mayor o igual a 0.5
+
+
+## Estimación de la mediana 
+
+Siguiendo las recomendaciones de *Heeringa et al (2017)* para estimar cuantiles, primero se considera las estadísticas de orden que se denotan como $y_{1},\ldots,y_{n}$, y encuentra el valor de $j$ $(j=1,\ldots,n)$ tal que:
+
+$$
+  \hat{F}\left(y_{j}\right)\leq q\leq\hat{F}\left(y_{j+1}\right)
+$$
+
+La estimación del cuantil $q$-ésimo en un diseño complejo se calcula utilizando esta fórmula:
+
+$$
+\hat{Y}_{q} = y_{j} + \frac{q - \hat{F}(y_{j})}{\hat{F}(y_{j+1}) - \hat{F}(y_{j})}(y_{j+1} - y_{j})
+$$
+
+## Estimación de la mediana para gastos
+
+La estimación de la median se obtiene con `survey_median` 
+
+```{r}
+diseno %>% filter(COSTOALQUI > 0) %>% 
+  summarise(Mediana = 
+  survey_median(
+    COSTOALQUI, na.rm = TRUE,
+    level = 0.95,
+    vartype =  c("se", "ci"),
+   )) %>% tba()
+```
+
+## Estimación de la mediana por sub-grupo
+
+```{r}
+diseno %>% filter(COSTOALQUI > 0) %>% 
+  group_by(Area) %>% 
+  summarise(Mediana = 
+  survey_median(
+    COSTOALQUI,
+    level = 0.95,  na.rm = TRUE,
+    vartype =  c("se", "ci"),
+   )) %>% tba()
+```
+
+## Estimación de la mediana del salario por sub-grupo
+
+```{r}
+diseno %>% filter(SALARIO_IMPUT_2 > 0) %>% 
+  group_by(Sexo) %>% 
+  summarise(Mediana = 
+  survey_median(
+    SALARIO_IMPUT_2,
+    level = 0.95, na.rm = TRUE,
+    vartype =  c("se", "ci"),
+   )) %>% tba()
+```
+
+
+
+## Estimación del quantil 0.5 para el salario
+
+La estimación de la median se obtiene con `survey_quantile`
+
+```{r}
+
+diseno %>% filter(!is.na(SALARIO_IMPUT_2)) %>% 
+  summarise(
+    Q =  survey_quantile(
+    SALARIO_IMPUT_2,
+    quantiles = 0.5,
+    level = 0.95,  
+    vartype =  c("se", "ci"),
+    interval_type = "score"
+   )) %>% tba()
+```
+
+## Estimación del quantil 0.25 para el salario por sub-grupo
+
+```{r}
+diseno %>% filter(!is.na(SALARIO_IMPUT_2)) %>%
+  group_by(Sexo) %>% 
+  summarise(
+    Q =  survey_quantile(
+    SALARIO_IMPUT_2,
+    quantiles = 0.25,
+    level = 0.95,
+    vartype =  c("se", "ci"),
+    interval_type = "score"
+   ))  %>% tba()
+```
+
+## Estimación del quantile 0.25  por sub-grupo
+
+```{r}
+
+diseno %>% filter(YEMPLEO > 0) %>% 
+  group_by(Area) %>% 
+  summarise(
+    Q =  survey_quantile(
+    YEMPLEO,
+    quantiles = 0.25,
+    level = 0.95,
+    vartype =  c("se", "ci"),
+    interval_type = "score"
+   ))  %>% tba()
+```
+
+
+## Estimando razones en encuestas de hogares
+
+- La razón poblacional es el cociente de dos totales poblacionales de características de interés, como la cantidad de hombres por cada mujer en un país.
+
+- Para estimar esta razón en encuestas de hogares, se calculan por separado los totales de las variables de interés.
+
+- El estimador puntual de la razón se define como el cociente de los totales estimados:
+
+$$
+\hat{R} = \frac{{\sum_{h=1}^{H}\sum_{\alpha=1}^{\alpha_{h}}\sum_{i=1}^{nh\alpha}\omega_{h\alpha i}y_{h\alpha i}}}{{\sum_{h=1}^{H}\sum_{\alpha=1}^{\alpha_{h}}\sum_{i=1}^{nh\alpha}\omega_{h\alpha i}x_{h\alpha i}}}
+$$
+
+- Sin embargo, el cálculo de la varianza de este estimador no es trivial, por lo que se requiere aplicar la técnica de linealización de Taylor *(Gutiérrez, 2016)*.
+
+
+## Estimación de la razón entre el gasto y el ingreso
+La estimación de una razón se obtiene con la función `survey_ratio`.  
+```{r}
+diseno %>%  filter(YEMPLEO > 0, COSTOALQUI > 0) %>%
+   summarise(
+    Razon =  survey_ratio(
+      numerator = COSTOALQUI,
+      denominator = YEMPLEO,
+      level = 0.95,
+    vartype =  c("se", "ci")
+    ))  %>% tba()
+```
+
+## Estimación de la razón entre hombres y mujeres
+
+```{r}
+diseno %>% summarise(
+    Razon =  survey_ratio(
+      numerator = (Sexo == "2. Mujer"),# creando dummy.
+      denominator = (Sexo == "1. Hombre"),# creando dummy.
+      level = 0.95,
+    vartype =  c("se", "ci")
+    ))  %>% tba()
+```
+
+## Estimación de la razón entre hombres y mujeres en la zona rural
+
+```{r}
+sub_Rural <- sub_Rural %>%
+  mutate(Sexo = haven::as_factor(F2_A6_P3_SEXO))
+sub_Rural %>% summarise(
+    Razon =  survey_ratio(
+    numerator = (Sexo == "2. Mujer"),# creando dummy.
+    denominator = (Sexo == "1. Hombre"),# creando dummy.
+      level = 0.95,
+    vartype =  c("se", "ci")
+    ))  %>% tba()
+```
+
+## Estimación de la razón del gastos y los ingreso entre las mujeres
+
+```{r}
+sub_Mujer %>% filter(YEMPLEO > 0, COSTOALQUI > 0) %>%
+  summarise(
+    Razon =  survey_ratio(
+      numerator = COSTOALQUI,
+      denominator = YEMPLEO,
+      level = 0.95,
+    vartype =  c("se", "ci")
+    ))  %>% tba()
+```
+
+## Estimación de la razón del gasto y los ingresos entre los hombres
+
+```{r}
+sub_Hombre %>%  filter(YEMPLEO > 0, COSTOALQUI > 0) %>%
+  summarise(
+    Razon =  survey_ratio(
+      numerator = COSTOALQUI,
+      denominator = YEMPLEO,
+      level = 0.95,
+    vartype =  c("se", "ci")
+    ))  %>% tba()
+```
+
+
+# Estimación del coeficiente de Gini en encuestas de hogares
+
+## Reflexión
+
+
+> Definir lo justo siempre será difícil y es algo a lo que quizá sea poco realista aspirar a conseguir. Sin embargo si estamos un poco más conscientes de cómo la desigualdad afecta nuestra libertad y cómo se refleja en el bienestar y calidad de vida de las personas, podremos poner en contexto una discusión que tendremos cada vez más presente en el mundo y en el país.
+
+## Índice de Gini
+
+- El índice de Gini es un indicador ampliamente utilizado para medir la desigualdad económica en los hogares de un país. Su valor oscila entre 0 y 1, donde 0 representa una distribución perfectamente igualitaria y valores más altos indican una creciente desigualdad en la distribución de la riqueza.
+
+- El estimador del coeficiente de Gini, según *Binder y Kovacevic (1995)*, se define como:
+
+$$
+\hat{G}\left(y\right) = \frac{2\times\sum_{h=1}^{H}\sum_{\alpha=1}^{a_{h}}\sum_{i=1}^{n_{h\alpha}}\omega_{h\alpha i}^{*}\hat{F}_{h\alpha i}y_{h\alpha i}-1}{\bar{y}_{\omega}}
+$$
+
+Donde:
+  - $\omega_{h\alpha i}^{*}$ es el peso de diseño normalizado.
+  
+  - $\hat{F}_{h\alpha i}$ es la estimación de la función de distribución acumulativa en el conglomerado $\alpha$ del estrato $h$.
+  
+  - $\bar{y}_{\omega}$ es la estimación del promedio de la variable de interés.
+
+
+## Estimación del índice de GINI
+
+La estimación del índice de GINI se realiza haciendo uso de la librería `convey`, para ello se procede así: 
+
+```{r}
+library(convey)
+## Definir el diseño  
+diseno_gini <- convey_prep(diseno)
+## Calculo del indice para el ingreso
+svygini( ~YEMPLEO, 
+         design = diseno_gini %>% filter(YEMPLEO > 0)) %>%
+  data.frame() %>% tba()
+```
+
+
+## Estimación del índice de GINI
+
+En forma análoga es posible obtener el indice de GINI para el gasto. 
+
+```{r}
+svygini( ~COSTOALQUI,
+         design = diseno_gini %>% filter(COSTOALQUI > 0)) %>%
+  data.frame() %>% tba()
+
+```
+
+
+## Curva de Lorenz
+
+- La **curva de Lorenz** es una herramienta fundamental para analizar la desigualdad en la distribución de ingresos en una población. Esta curva representa el porcentaje acumulado de la población, ordenada de menor a mayor ingreso, frente a su participación en el ingreso total. Cuanto más cerca esté la curva de Lorenz de la línea de 45 grados, más equitativa es la distribución de ingresos.
+
+- El área entre la curva de Lorenz y la línea de 45 grados se conoce como el **área de Lorenz**. El índice de Gini es igual al doble del área de Lorenz. Si todos los ingresos son iguales, la curva de Lorenz se convierte en una línea de 45 grados.
+
+## Estimación del curva de Lorenz.
+La **curva de Lorenz** es una representación gráfica de la desigualdad en la distribución de la renta, para obtener la representación gráfica de está usamos la función `svylorenz`.
+
+
+```{r, echo=FALSE, eval=FALSE}
+# Abrir el dispositivo gráfico
+jpeg("Imagenes/02_variable_continua/01_lorenz_YEMPLEO.jpeg", width = 800, height = 600, res = 120)
+
+svylorenz( ~YEMPLEO, diseno_gini %>% filter(YEMPLEO > 0), 
+           seq(0,1,.05), alpha = .01 )
+
+# Cerrar el dispositivo
+dev.off()
+```
+
+```{r, out.width="70%", fig.align="center", out.width= "60%", eval=FALSE}
+svylorenz( ~YEMPLEO, diseno_gini %>% filter(YEMPLEO > 0), 
+           seq(0,1,.05), alpha = .01 )
+```
+![*curva de Lorenz*](Imagenes/02_variable_continua/01_lorenz_YEMPLEO.jpeg){width="250"}
+
+
+# Prueba de hipótesis para la diferencia de medias en encuestas de hogares
+
+
+## Prueba de Hipótesis:
+   
+Se plantean dos hipótesis: nula (H0) y alternativa (H1).
+    
+$$
+\begin{cases}
+H_{0}: & \theta=\theta_{0}\\
+H_{1}: & \theta\neq\theta_{0}
+\end{cases}\,\,\,	\begin{cases}
+H_{0}: & \theta=\theta_{0}\\
+H_{1}: & \theta>\theta_{0}
+\end{cases}\,\,\,	\begin{cases}
+H_{0}: & \theta=\theta_{0}\\
+H_{1}: & \theta<\theta_{0}
+\end{cases}
+$$
+El proceso de selección entre las dos hipótesis se llama prueba de hipótesis.
+
+## Combinaciones Lineales de Estadísticas Descriptivas
+
+- Parámetros importantes se expresan como combinaciones lineales de medidas descriptivas.
+- Ejemplo: suma ponderada de medias para construir índices económicos, es decir, la función de combinación lineal: $f(\theta_1, \theta_2, ..., \theta_j) = \sum_{j=1}^J a_j \theta_j$
+
+- Estimación de la función: 
+
+$$f(\hat{\theta}_1, \hat{\theta}_2, ..., \hat{\theta}_j) = \sum_{j=1}^J a_j \hat{\theta}_j$$
+
+**Varianza del Estimador**:
+
+- La varianza del estimador se calcula como: 
+    $$var\left(\sum_{j=1}^J a_j \hat{\theta}_j\right) = \sum_{j=1}^J a_j^2 var\left(\hat{\theta}_j\right) + 2 \sum_{j=1}^{J-1} \sum_{k>j}^J a_j a_k \, cov\left(\hat{\theta}_j, \hat{\theta}_k\right)$$
+
+
+## Diferencia de Medias y Prueba de Hipótesis
+
+La diferencia de medias se expresa como ${\bar{Y}_1 - \bar{Y}_2}$.
+
+- Ejemplo: Diferencia entre los ingresos medios de padres e ingresos medios de madres en un hogar.
+
+**Hipótesis**
+
+- $H_0$: No hay diferencia entre las medias (${H_0: \bar{Y}_1 - \bar{Y}_2 = 0}$).
+
+- $H_1$: Existe diferencia entre las medias: 
+
+
+\begin{eqnarray*}
+\begin{cases}
+H_{0}:\bar{Y}_{1}-\bar{Y}_{2}=0\\
+H_{1}:\bar{Y}_{1}-\bar{Y}_{2}\neq0
+\end{cases} & \begin{cases}
+H_{0}:\bar{Y}_{1}-\bar{Y}_{2}=0\\
+H_{1}:\bar{Y}_{1}-\bar{Y}_{2}>0
+\end{cases} & \begin{cases}
+H_{0}:\bar{Y}_{1}-\bar{Y}_{2}=0\\
+H_{1}:\bar{Y}_{1}-\bar{Y}_{2}<0
+\end{cases}
+\end{eqnarray*}
+
+    
+## Estadístico de Prueba t
+
+- El estadístico de prueba t se utiliza para probar las hipótesis y se distribuye como una t-Student.
+
+- Fórmula del estadístico de prueba t:
+$$t = \frac{\bar{Y}_1 - \bar{Y}_2}{se(\bar{Y}_1 - \bar{Y}_2)}$$
+- Donde $se(\bar{Y}_1 - \bar{Y}_2)$ es la desviación estándar de la diferencia de medias:
+
+$$se(\bar{Y}_1 - \bar{Y}_2) = \sqrt{var(\bar{y}_1) + var(\bar{y}_2) - 2 cov(\bar{y}_1, \bar{y}_2)}$$
+
+## Intervalo de Confianza para la Diferencia de Medias
+- Para construir un intervalo de confianza para la diferencia de medias:
+
+$$\left(\bar{Y}_1 - \bar{Y}_2\right) \pm t_{gl, \alpha/2} \, se(\bar{Y}_1 - \bar{Y}_2)$$
+
+- Las pruebas de hipótesis y los intervalos de confianza son herramientas clave para la toma de decisiones y evaluación en estadísticas.
+
+## Pruebas de diferencia medias de los ingresos entre hombres y mujeres
+
+La comparación de los ingresos medios entre hombre y mujeres de la muestra se realiza así: 
+```{r, test1, eval=FALSE}
+diseno <- diseno %>% filter(YEMPLEO > 0)
+svyttest(YEMPLEO ~ Sexo, diseno)
+```
+
+
+```{r, test1, eval=TRUE, echo=FALSE}
+```
+
+\normalsize
+
+El resultando indica que hay diferencia entre los ingreso medios. 
+
+## Pruebas de diferencia medias de los ingresos entre hombres y mujeres en la zona urbana
+También es posible realizar el procedimiento en sub-grupos de interés.  
+
+```{r, test2, eval=FALSE}
+sub_Urbano <- sub_Urbano %>% filter(YEMPLEO > 0)
+svyttest(YEMPLEO ~ Sexo, sub_Urbano)
+```
+
+
+```{r, test2, eval=TRUE, echo=FALSE}
+```
+
+\normalsize
+
+El resultando indica que hay diferencia entre los ingreso medios.
+
+## Pruebas de diferencia medias de los ingresos entre hombres y mujeres mayores a 18 años
+
+```{r, test3, eval=FALSE}
+svyttest(YEMPLEO ~ Sexo, diseno %>% filter(F2_A6_P4_EDAD  > 18))
+```
+
+
+```{r, test3, eval=TRUE, echo=FALSE}
+```
+
+
+## Contrastes en Encuestas de Hogares
+
+- En encuestas de hogares, a menudo se necesita comparar más de dos poblaciones simultáneamente.
+
+- Ejemplo: Comparar los ingresos medios en 3 regiones o municipalidades en la postpandemia para evaluar el impacto de COVID-19 en los hogares.
+
+- La diferencia de medias, utilizada previamente, es limitada para comparar solo dos poblaciones.
+
+- Los contrastes ofrecen una solución efectiva para abordar problemas de comparación múltiple en encuestas de hogares.
+
+
+## Contrastes y Combinaciones Lineales de Parámetros
+
+- Un contraste es una combinación lineal de parámetros:
+$$f(\theta_1, \theta_2, ..., \theta_j) = \sum_{j=1}^{J} a_j \theta_j$$
+
+- La estimación de esta función se expresa como:
+    $$f(\hat{\theta}_1, \hat{\theta}_2, ..., \hat{\theta}_j) = \sum_{j=1}^{J} a_j \hat{\theta}_j$$
+- La varianza del estimador se calcula de la siguiente manera:
+
+$$var\left(\sum_{j=1}^{J} a_j \hat{\theta}_j\right) = \sum_{j=1}^{J} a_j^2 var(\hat{\theta}_j) + 2 \sum_{j=1}^{J-1} \sum_{k>j}^{J} a_j a_k \, cov(\hat{\theta}_j, \hat{\theta}_k)$$
+
+## Contrastes
+
+Ahora, el interés es realizar contrastes entre más de dos subpobaciones, por ejemplo por departamento.  
+
+\tiny
+
+```{r, contra_1, echo=FALSE}
+diseno  <- diseno %>% mutate(dam = haven::as_factor(F1_A0_DEPARTAMENTO))
+(prom_dam <- svyby(~YEMPLEO, ~dam , diseno, 
+                      svymean, na.rm=T, 
+                      covmat = TRUE,
+                      vartype = c("se", "ci")))
+```
+
+\normalsize
+Por ejemplo, la diferencia media entre los departamentos Colon y Comayagua $\hat{\bar{y}}_{Colon} - \hat{\bar{y}}_{Comayagua}$ 
+
+
+## Procedimiento para realizar los contrastes 
+
+```{r}
+# Paso 1: diferencia de estimaciones (Colon - Comayagua) 
+10428 - 11674
+```
+
+```{r,contr1_var,eval=FALSE}
+# Paso 2: error estándar de la diferencia
+vcov(prom_dam)[2:3,2:3] %>% tba()
+```
+
+```{r,contr1_var,echo=FALSE,eval=TRUE}
+```
+\normalsize
+```{r}
+sqrt(965391 + 878904 - 2*0)
+```
+
+
+## Procedimiento para realizar los contrastes 
+El procedimiento anterior se reduce a la sintaxis: 
+```{r}
+svycontrast(prom_dam,
+            list(diff = c(0, 1, -1, rep(0,15)))) %>%
+  data.frame()
+
+```
+
+
+## Creado una matriz de contrastes
+
+Ahora el interés es realizar los contrastes siguientes: 
+
+- $\hat{\bar{y}}_{Atlantida} - \hat{\bar{y}}_{Colon}$, 
+- $\hat{\bar{y}}_{Cortes}-\hat{\bar{y}}_{Choluteca}$ 	
+- $\hat{\bar{y}}_{Olancho}-\hat{\bar{y}}_{Yoro}$	
+
+Escrita de forma matricial es: 
+
+$$
+\left[\begin{array}{cccccccccccccccccc}
+ 1 & -1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
+ 0 & 0 & 0 & 0 & 1 & -1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
+ 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 1 & 0 & 0 & -1 \\
+\end{array}\right]
+$$
+
+
+## Creado una matriz de contrastes en `R`
+
+```{r, eval=TRUE, echo=TRUE}
+contrastes <- matrix(0, nrow = 3, ncol = 18)
+# Definir los contrastes
+contrastes[1, c(1, 2)]  <- c(1, -1)   # Atlántida - Colón
+contrastes[2, c(5, 6)]  <- c(1, -1)   # Cortés - Choluteca
+contrastes[3, c(15, 18)] <- c(1, -1)  # Olancho - Yoro
+
+contrastes
+```
+
+## Contrastes en `R`
+
+```{r}
+svycontrast(prom_dam, list(
+           Atlantida_Colón = contrastes[1,],
+          Cortés_Choluteca = contrastes[2,],
+         Olancho_Yoro = contrastes[3,]
+            )) %>% data.frame()
+
+```
+
+## Contrastes no independiente
+
+Es posible que las variables estén correlacionadas.Por ejemplo, Ingreso y Sexo.
+
+```{r}
+prom_sexo <-
+   svyby(~YEMPLEO, ~Sexo, diseno,
+         svymean, na.rm=T,covmat = TRUE,
+         vartype = c("se", "ci"))
+prom_sexo
+
+```
+
+## Contrastes no independiente
+El contraste 
+$$
+\hat{\bar{y}}_{H} - \hat{\bar{y}}_{M} 
+$$
+Es calculado como sigue: 
+
+```{r}
+svycontrast(prom_sexo, 
+            list(diff_Sexo = c(1, -1))) %>% 
+  data.frame()
+```
+
+## Contrastes no independiente
+
+```{r}
+vcov(prom_sexo)
+# Note que el error estándar de la diff  es igual a 
+sqrt(70576 + 19051 - 2*15278)
+```
+
+## Contrastes no independiente
+Otra posibilidad es poder obtener resultados agregados, por ejemplo: 
+
+$$
+\hat{\bar{y}}_{Yoro }+\hat{\bar{y}}_{Colon } +\hat{\bar{y}}_{Comayagua }
+$$
+
+```{r, sum_dam, echo=TRUE, eval=FALSE}
+sum_dam <- svyby( ~ YEMPLEO,  ~ dam,
+                     diseno, svytotal, na.rm = T,
+                     covmat = TRUE,
+                     vartype = c("se", "ci")) 
+sum_dam %>% tba()
+```
+## Total del ingreso 
+\tiny
+```{r, sum_dam, echo=FALSE, eval=TRUE}
+```
+
+
+## Contrastes no independiente
+La matriz de contraste queda como: 
+$$
+\left[\begin{array}{ccccccc}
+1 & 1 & 1 & 0 & 0 & \cdots & 0
+\end{array}\right]
+$$
+el procedimiento en R es:
+
+```{r}
+svycontrast(sum_dam,
+            list(
+              Agregado = rep(c(1,0), c(3 , 15))
+              )) %>% data.frame() %>% tba()
+
+
+```
+
+
+## Contrastes
+
+```{r, c1, echo=TRUE, eval=FALSE}
+vcov(sum_dam)[1:3, 1:3] %>% as.data.frame() %>% tba()
+```
+\scriptsize
+```{r, c1, echo=FALSE, eval=TRUE}
+```
+\normalsize
+
+```{r}
+sqrt(176679802169900928 + 88553200088489904 + 321009814737339968 -
+       2*44864888457644600)
+```
+
+## Contrastes no independiente
+
+La función puede usarse para obtener los promedios por categorías. Por ejemplo: 
+$$
+\hat{\bar{y}}_{Edad} = \frac{1}{k}\sum_{k=1}^K\hat{\bar{y}}_{k}
+$$
+donde $K$ es el número de categorías de la variable.
+
+## Contrastes no independiente
+
+```{r}
+diseno <- diseno %>%
+  mutate(Edad_cat = cut(
+    F2_A6_P4_EDAD ,
+    c(0, 15, 30 , 45, 60, Inf),
+    labels = c("0 - 15", "16 - 30",
+               "31 - 45", "46 - 60", "60 +")
+  ))
+  prom_edad <-
+    svyby(
+      ~ YEMPLEO,
+      ~ Edad_cat,
+      diseno %>% filter(F2_A6_P4_EDAD > 15),
+      svymean,
+      na.rm = T,
+      covmat = TRUE
+    )
+```
+
+## Contrastes no independiente
+```{r, echo=FALSE}
+prom_edad %>% tba()
+```
+
+
+## Contrastes no independiente
+La matriz de contraste estaría dada por:
+$$
+\left[\begin{array}{cccc}
+\frac{1}{4} & \frac{1}{4} & \frac{1}{4} & \frac{1}{4}
+\end{array}\right]
+$$
+El procedimiento en R es: 
+
+```{r}
+svycontrast(prom_edad,
+  list(
+  agregado_edad = c(1/4, 1/4, 1/4, 1/4)
+      )) %>% data.frame()
+
+```
+
+## Contrastes no independiente
+
+
+```{r}
+vcov(prom_edad)
+```
+
+\normalsize
+
+```{r}
+(1 / 4)*sqrt(
+  49065 + 2*39352 + 2*30798  + 2*95779  +
+           562921 + 2*71905  + 2*129515 +
+                     282640  + 2*130462 +
+                                1131332
+)
+```
+
+## Contrastes no independiente
+
+```{r,c2, echo=TRUE, eval=FALSE}
+diseno_temp <- diseno %>% filter(COSTOALQUI > 0)
+(razon_sexo <- svyby(~YEMPLEO, ~Sexo,
+                     denominator = ~COSTOALQUI,
+                     diseno_temp, svyratio, 
+                     na.rm=T, covmat = TRUE, 
+                     vartype = c("se", "ci")))
+```
+
+\tiny
+```{r,c2, echo=FALSE, eval=TRUE}
+```
+
+## Contrastes no independiente
+
+```{r}
+svycontrast(razon_sexo,
+            list(
+              diff_sexo = c(1, -1)
+              )) %>% data.frame()
+
+```
+
+## Contrastes no independiente
+
+```{r}
+
+vcov(razon_sexo)
+sqrt(39.2 + 33.20 - 2*(-17.66))
+
+```
+
+
+
+## ¡Gracias!
+
+::: yellow
+*Email*: [andres.gutierrez\@cepal.org](mailto:andres.gutierrez@cepal.org){.email}
+:::
+
+
