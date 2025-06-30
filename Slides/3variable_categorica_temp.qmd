@@ -333,6 +333,173 @@ Con el uso de la función `group_by` es posible estimar un mayor numero de nivel
 ```
 
 
+## Estimación de la proporción de personas por rango de edad
+
+```{r, tabs01, echo=TRUE, eval=FALSE}
+diseno <-  diseno %>%
+  mutate(
+    disponible = case_when(
+      F2_A8_P13_DISPONIBLETRABAJAR == 1 ~ "Sí",
+      F2_A8_P13_DISPONIBLETRABAJAR %in% c(2:5) ~
+        "No",
+      TRUE ~ NA_character_
+    )
+  )
+diseno %>%  group_by(disponible, Edad_cat) %>%
+  summarise(Prop = survey_prop(vartype =  c("se", "ci"))) %>%
+  data.frame()
+```
+
+## Estimación de la proporción de personas por rango de edad
+
+```{r, tabs01, echo=FALSE, eval=TRUE}
+```
+
+
+## Estimación de la proporción de personas por rango de edad
+
+```{r}
+sub_Rural %>%
+  group_by(Edad_cat) %>% 
+  summarise(
+    Prop = survey_prop(
+      vartype =  c("se", "ci"))) %>%
+  data.frame()
+```
+
+## Estimación de la proporción de mujeres rango de edad
+
+```{r,tabtemp1,eval=FALSE}
+sub_Mujer %>% 
+  mutate(
+    disponible = case_when(
+      F2_A8_P13_DISPONIBLETRABAJAR == 1 ~ "Sí",
+      F2_A8_P13_DISPONIBLETRABAJAR %in% c(2:5) ~
+        "No",
+      TRUE ~ NA_character_
+    )
+  )  %>% group_by(disponible, Edad_cat) %>% 
+  summarise(Prop = survey_prop(
+      vartype =  c("se", "ci"))) %>%   data.frame()
+```
+
+## Estimación de la proporción de mujeres rango de edad
+
+```{r,tabtemp1, eval=TRUE,echo=FALSE}
+```
+
+
+## Estimación de la proporción de hombres rango de edad
+
+```{r, tab_01, echo=TRUE,eval=FALSE}
+sub_Hombre %>% 
+  mutate(
+    disponible = case_when(
+      F2_A8_P13_DISPONIBLETRABAJAR == 1 ~ "Sí",
+      F2_A8_P13_DISPONIBLETRABAJAR %in% c(2:5) ~
+        "No",
+      TRUE ~ NA_character_
+    )
+  )  %>% group_by(disponible, Edad_cat) %>% 
+  summarise(Prop = survey_prop(
+      vartype =  c("se", "ci"))) %>%   data.frame()
+```
+
+## Estimación de la proporción de hombres rango de edad
+
+```{r,tab_01, echo=FALSE,eval=TRUE}
+```
+
+# Tablas cruzadas. 
+
+
+## Tablas Cruzadas en el Análisis de Encuestas de Hogares
+
+- Las tablas cruzadas son una herramienta esencial.
+
+- Se utilizan para resumir información de variables categóricas.
+
+- Pueden tener dos o más filas y columnas.
+
+- En esta sección, nos enfocaremos principalmente en tablas $2\times 2$.
+    
+**Estructura de una Tabla de Contingencia:**
+
+- Se asume como un arreglo bidimensional de filas y columnas.
+
+- Marginales de fila y columna se calculan sumando las frecuencias.
+    
+## Ejemplo Gráfico de una Tabla $2\times 2$.
+
+Representa la relación entre dos variables categóricas.
+    
+| Variable 2        | Variable 1                  | Marginal fila|
+|-------------------|-------------|---------------|--------------|
+|                   | 0           | 1             |              |
+| 0                 | $n_{00}$    |   $n_{01}$    | $n_{0+}$     |
+| 1                 |  $n_{10}$   |  $n_{11}$     | $n_{1+}$     |
+| Marginal columna  |  $n_{+0}$   |    $n_{+1}$   |  $n_{++}$    |
+
+Las frecuencias en la tabla pueden ser estimadas o ponderadas. Por ejemplo, $\hat{N}_{01}$ se calcula como la suma ponderada.
+
+## Cálculo de Proporciones Estimadas
+
+Las proporciones se obtienen dividiendo las frecuencias ponderadas por el total. Por ejemplo:
+
+ $$p_{rc}=\frac{\hat{N}_{rc}}{\hat{N}_{++}}$$.
+
+Estas tablas cruzadas son fundamentales para explorar la relación entre diferentes variables categóricas en encuestas de hogares y extraer información valiosa para la toma de decisiones.
+
+
+## Estimación de Proporciones para Variables Binarias
+
+- La estimación de una sola proporción, $\pi$, para una variable binaria se relaciona con el estimador de razón.
+
+- Al recodificar las respuestas en 0 y 1, podemos estimar la proporción $\pi$.
+
+- El estimador de proporción es: 
+
+
+\begin{eqnarray*}
+p & = & \frac{{\displaystyle \sum_{h=1}^{H}\sum_{\alpha=1}^{\alpha_{h}}\sum_{i\in\left(0,1\right)}^{n_{h\alpha}}}\omega_{h\alpha i}I\left(y_{i}=1\right)}{{\displaystyle \sum_{h=1}^{H}\sum_{\alpha=1}^{\alpha_{h}}\sum_{i\in\left(0,1\right)}^{n_{h\alpha}}}\omega_{h\alpha i}} = \frac{\hat{N}_{1}}{\hat{N}}
+\end{eqnarray*}
+
+
+## Estimación de la varianza $\hat{v}(p)$
+
+- La varianza del estimador se calcula con Linealización de Taylor:
+
+$$ \hat{v}(p) \approx \frac{V(\hat{N}_{1}) + p^2V(\hat{N}) - 2p\,cov(\hat{N}_{1},\hat{N})}{\hat{N}^{2}} $$
+
+- Para evitar límites no interpretables en el intervalo de confianza cuando $p$ está cerca de 0 o 1, podemos utilizar el método de *Wilson modificado*.
+
+- El intervalo de confianza se calcula a través de la transformación Logit:
+
+$$
+IC[logit(p)] = \left\{ ln\left(\frac{p}{1-p}\right) \pm \frac{t_{1-\alpha/2,gl}se(p)}{p(1-p)} \right\}
+$$
+
+## Estimación de la varianza $IC(p)$
+
+El intervalo de confianza para $p$ es:
+
+$$ 
+IC(p) = \left\{ \frac{exp\left[ln\left(\frac{p}{1-p}\right) \pm \frac{t_{1-\alpha/2,gl}se(p)}{p(1-p)} \right]}{1+exp\left[ln\left(\frac{p}{1-p}\right) \pm \frac{t_{1-\alpha/2,gl}se(p)}{p(1-p)} \right]} \right\}
+$$
+
+## Estimación de Proporciones para Variables Multinomiales
+
+- Cuando se trabaja con variables multinomiales, el estimador de proporción se adapta.
+
+- El estimador para la categoría $k$ es:
+
+\begin{eqnarray*}
+p_{k} & = & \frac{{\displaystyle \sum_{h=1}^{H}\sum_{\alpha=1}^{\alpha_{h}}\sum_{i=1}^{n_{h\alpha}}}\omega_{h\alpha i}I\left(y_{i}=k\right)}{{\displaystyle \sum_{h=1}^{H}\sum_{\alpha=1}^{\alpha_{h}}\sum_{i=1}^{n_{h\alpha}}}\omega_{h\alpha i}} = \frac{\hat{N}_{k}}{\hat{N}}
+\end{eqnarray*}
+
+Estos métodos permiten estimar proporciones para variables binarias y multinomiales en el contexto de encuestas de hogares.
+
+
 
 ## ¡Gracias!
 
