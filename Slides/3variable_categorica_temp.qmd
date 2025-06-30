@@ -82,11 +82,12 @@ Durante los análisis de encuesta surge la necesidad de crear nuevas variables a
 
 ```{r, tabs1, echo=TRUE, eval=TRUE}
 diseno <- diseno %>% mutate(
- Edad_cat = cut(
-    F2_A6_P4_EDAD ,
-    c(0, 15, 30 , 45, 60, Inf),
-    labels = c("0 - 15", "16 - 30",
-               "31 - 45", "46 - 60", "60 +")
+ Edad_cat = case_when(F2_A6_P4_EDAD < 16 ~ "0 - 15",
+                      F2_A6_P4_EDAD < 31 ~ "16 - 30",
+                      F2_A6_P4_EDAD < 46 ~ "31 - 45",
+                      F2_A6_P4_EDAD < 61 ~ "46 - 60",
+                      F2_A6_P4_EDAD > 60 ~ "60 +",
+                      TRUE ~ NA_character_
   )
 )
 ```
@@ -116,25 +117,23 @@ El primer parámetro estimado serán los tamaños de la población y subpoblacio
      Nd = survey_total(vartype = c("se","ci"))))
 
 ```
-En la tabla *n* denota el número de observaciones en la muestra por Zona y *Nd* denota la estimación del total de observaciones en la población. 
+En la tabla *n* denota el número de observaciones en la muestra por Área y *Nd* denota la estimación del total de observaciones en la población. 
 
 ## Estimación de tamaño  
 
 Empleando una sintaxis similar es posible estimar el número de personas en condición en el un  decil dado el ingreso disponible percápita del hogar  
 
 ```{r}
-(
-  tamano_decil <- diseno %>% 
+(tamano_decil <- diseno %>% 
       mutate(DECIL = haven::as_factor(DECIL_YDISPO_PER) ) %>% 
     group_by(DECIL) %>%
-    summarise(Nd = survey_total(vartype = c("se", "ci")))
-)
+    summarise(Nd = survey_total(vartype = c("se", "ci"))))
 
 ```
 
 ## Estimación de tamaño 
 
-En forma similar es posible estimar el número de personas con tenencia de celular
+En forma similar es posible estimar el número de personas por etnia 
 
 ```{r}
 (tamano_etnia<- diseno %>% 
@@ -158,8 +157,8 @@ Otra variable de interés es conocer el estado de ocupación de la personas.
 ```
 
 ## Estimación de tamaño 
-
-```{r, tab_sexo, echo=TRUE, eval=FALSE}
+\tiny
+```{r, tab_sexo, echo=FALSE, eval=TRUE}
 ```
 
 ## Estimación de tamaño  
@@ -248,7 +247,7 @@ Si el interés es obtener la estimación para una subpoblación, procedemos así
 ## Proporción de hombres en la área urbana y rural
 
 ```{r}
-(prop_ZonaH <- sub_Hombre %>% group_by(Area) %>% 
+(prop_AreaH <- sub_Hombre %>% group_by(Area) %>% 
    summarise(
      prop = survey_prop(vartype = c("se","ci"))))
 
@@ -259,7 +258,7 @@ Si el interés es obtener la estimación para una subpoblación, procedemos así
 ## Proporción de mujeres en la área urbana y rural
 
 ```{r}
-(prop_ZonaM <- sub_Mujer %>% group_by(Area) %>% 
+(prop_AreaM <- sub_Mujer %>% group_by(Area) %>% 
    summarise(
     prop = survey_prop(vartype = c("se","ci"))))
 
@@ -269,40 +268,40 @@ Si el interés es obtener la estimación para una subpoblación, procedemos así
 
 Con el uso de la función `group_by` es posible estimar un mayor numero de niveles de agregación al combinar dos o más variables. 
 
-```{r, prop_ZonaH_edad, eval=FALSE}
-(prop_ZonaH_edad <- sub_Hombre %>%
+```{r, prop_AreaH_edad, eval=FALSE}
+(prop_AreaH_edad <- sub_Hombre %>%
    group_by(Area, Edad_cat ) %>% 
    summarise(
      prop = survey_prop(vartype = c("se","ci")))%>%
    data.frame())
 ```
 
-## Proporción de hombres en la zona urbana y rural
+## Proporción de hombres en la área urbana y rural
 
-```{r, prop_ZonaH_edad, eval=TRUE, echo=FALSE}
+```{r, prop_AreaH_edad, eval=TRUE, echo=FALSE}
 ```
 
-## Proporción de mujeres en la zona urbana y rural
+## Proporción de mujeres en la área urbana y rural
 
-```{r,  prop_ZonaM_edad, eval=FALSE, echo=TRUE}
-(prop_ZonaM_Pobreza <- sub_Mujer %>% 
+```{r,  prop_AreaM_edad, eval=FALSE, echo=TRUE}
+(prop_AreaM_Pobreza <- sub_Mujer %>% 
    group_by(Area, Edad_cat) %>% 
    summarise(
      prop = survey_prop(vartype = c("se","ci"))) %>%
    data.frame())
 
 ```
-\tiny
+\small
 
-```{r, prop_ZonaM_edad, eval=TRUE, echo=FALSE}
+```{r, prop_AreaM_edad, eval=TRUE, echo=FALSE}
 ```
 
 ## Proporción de hombres en la area  disponible para trabajar
 
-```{r, prop_ZonaH_disponible, eval=FALSE,echo=TRUE}
+```{r, prop_AreaH_disponible, eval=FALSE,echo=TRUE}
 #F2_A8_P13_DISPONIBLETRABAJAR:	Estaba disponible para trabajar
 
-(prop_ZonaH_disponible <- sub_Hombre %>%
+(prop_AreaH_disponible <- sub_Hombre %>%
     mutate(disponible = haven::as_factor(F2_A8_P13_DISPONIBLETRABAJAR)) %>%
    group_by(Area, disponible) %>% 
    summarise(
@@ -314,22 +313,23 @@ Con el uso de la función `group_by` es posible estimar un mayor numero de nivel
 ## Proporción de hombres en la área disponible para trabajar
 \tiny
 
-```{r, prop_ZonaH_disponible, eval=TRUE, echo=FALSE}
+```{r, prop_AreaH_disponible, eval=TRUE, echo=FALSE}
 ```
 
 ## Proporción de mujeres en la área urbana y rural
 
-```{r,prop_ZonaM_disponible, eval=FALSE}
-(prop_ZonaM_disponible <- sub_Mujer %>% 
-    mutate(disponible = haven::as_factor(F2_A8_P13_DISPONIBLETRABAJAR)) %>%
+```{r,prop_AreaM_disponible, eval=FALSE}
+(prop_AreaM_disponible <- sub_Mujer %>% 
+ mutate(
+  disponible = haven::as_factor(F2_A8_P13_DISPONIBLETRABAJAR)) %>%
    group_by(Area, disponible) %>% 
    summarise( prop = survey_prop(vartype = c("se","ci"))) %>%
    data.frame())
 ```
 
 ## Proporción de mujeres en la área urbana y rural
-
-```{r,prop_ZonaM_disponible, eval=TRUE, echo=FALSE}
+\tiny
+```{r,prop_AreaM_disponible, eval=TRUE, echo=FALSE}
 ```
 
 
