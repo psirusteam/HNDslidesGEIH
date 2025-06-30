@@ -1,0 +1,341 @@
+---
+title: "Análisis de encuestas de hogares con R"
+subtitle: "Módulo 2: Análisis de variables categóricas"
+author: |
+  | Andrés Gutiérrez.
+  | Stalyn Guerrero 
+institute: "CEPAL - Unidad de Estadísticas Sociales"
+format: 
+  beamer: 
+    colortheme: dove
+    fonttheme: default
+    incremental: false
+    aspectratio: 1610
+    #theme: Berkeley
+    toc: true
+    slide_level: 2
+    #highlight: pygments
+Email: andres.gutierrez@cepal.org
+lang: es
+header-includes:
+    - \usepackage{amsmath}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE, warning = FALSE, message = FALSE,echo = TRUE,
+                      error = FALSE, cache.path = "00_Caches/03_var_categoria/")
+options(digits = 4)
+library(magrittr)
+library (survey)
+library(srvyr)
+library(convey)
+library(TeachingSampling)
+library(printr)
+select <- dplyr::select
+```
+
+
+# Introducción
+
+## Motivación 
+
+- En el mundo de la estadística y el análisis de datos, nos encontramos con una variedad de variables que pueden ser clasificadas en dos categorías principales: cualitativas y cuantitativas.
+
+- Las variables cualitativas, también conocidas como categóricas, representan características o cualidades que no se pueden medir con números, como el género, el estado civil o el tipo de vivienda.
+
+- Algunas variables cuantitativas se transforman en categóricas al dividir su rango en categorías, y viceversa, algunas variables categóricas se convierten en cuantitativas mediante análisis especializados.
+
+- En esta presentación, exploraremos esta distinción y cómo abordar variables cualitativas  en el contexto de encuestas y análisis de datos.
+
+
+# Definición del diseño y creación de variables categóricas
+
+## Lectura de la base
+
+Iniciemos con la lectura de la encuesta. 
+
+```{r}
+encuesta <- readRDS("Imagenes/02_variable_continua/ENIGH_HND_Pers.rds")
+```
+El paso siguiente es realizar declaración del objeto tipo diseño. 
+
+```{r}
+options(survey.lonely.psu = "adjust")
+library(srvyr)
+diseno <- encuesta %>% # Base de datos.
+  mutate(estrato = haven::as_factor(F1_A0_ESTRATO), 
+         Sexo = haven::as_factor(F2_A6_P3_SEXO), 
+         Area = haven::as_factor(F1_A0_AREA)) %>% 
+  as_survey_design(
+    strata = estrato,  # Id de los estratos.
+    ids = F1_A0_UPM,         # Id para las observaciones.
+    weights = Factor,      # Factores de expansión. 
+    nest = TRUE           # Valida el anidado dentro del estrato
+  )
+
+```
+
+## Creación de nuevas variables
+
+Durante los análisis de encuesta surge la necesidad de crear nuevas variables a partir de las existentes, aquí mostramos la definición de algunas de ellas.  
+
+
+```{r, tabs1, echo=TRUE, eval=TRUE}
+diseno <- diseno %>% mutate(
+ Edad_cat = cut(
+    F2_A6_P4_EDAD ,
+    c(0, 15, 30 , 45, 60, Inf),
+    labels = c("0 - 15", "16 - 30",
+               "31 - 45", "46 - 60", "60 +")
+  )
+)
+```
+
+> Se ha introducido la función `case_when` la cual es una extensión del a función `ifelse` que permite crear múltiples categorías a partir de una o varias condiciones.    
+
+## Dividiendo la muestra en Sub-grupos
+
+En ocasiones se desea realizar estimaciones por sub-grupos de la población, en este caso se extraer 4 sub-grupos de la encuesta.
+
+```{r}
+sub_Urbano <- diseno %>%  filter(Area == "1. Urbana") # 
+sub_Rural  <- diseno %>%  filter(Area == "2. Rural") # 
+sub_Mujer  <- diseno %>%  filter(Sexo == "2. Mujer") # 
+sub_Hombre <- diseno %>%  filter(Sexo == "1. Hombre") # 
+```
+
+## Estimación del tamaño. 
+
+El primer parámetro estimado serán los tamaños de la población y subpoblaciones. 
+
+
+```{r}
+(tamano_zona <- diseno %>% group_by(Area) %>% 
+   summarise(
+     n = unweighted(n()), # Observaciones en la muestra.
+     Nd = survey_total(vartype = c("se","ci"))))
+
+```
+En la tabla *n* denota el número de observaciones en la muestra por Zona y *Nd* denota la estimación del total de observaciones en la población. 
+
+## Estimación de tamaño  
+
+Empleando una sintaxis similar es posible estimar el número de personas en condición en el un  decil dado el ingreso disponible percápita del hogar  
+
+```{r}
+(
+  tamano_decil <- diseno %>% 
+      mutate(DECIL = haven::as_factor(DECIL_YDISPO_PER) ) %>% 
+    group_by(DECIL) %>%
+    summarise(Nd = survey_total(vartype = c("se", "ci")))
+)
+
+```
+
+## Estimación de tamaño 
+
+En forma similar es posible estimar el número de personas con tenencia de celular
+
+```{r}
+(tamano_etnia<- diseno %>% 
+     mutate(etnia = haven::as_factor(F2_A6_P5_ETNIA) ) %>% 
+   group_by(etnia) %>% 
+   summarise(
+       Nd = survey_total(vartype = c("se","ci"))))
+
+```
+
+## Estimación de tamaño  
+Otra variable de interés es conocer el estado de ocupación de la personas.  
+
+```{r, tab_sexo, echo=TRUE, eval=FALSE}
+(
+  tamano_ocupacion <- diseno %>%
+    mutate(ocupacion = haven::as_factor(F2_A9_P3_TIPOEMPLEADO)) %>%
+    group_by(ocupacion) %>%
+    summarise(Nd = survey_total(vartype = c("se", "ci")))
+)
+```
+
+## Estimación de tamaño 
+
+```{r, tab_sexo, echo=TRUE, eval=FALSE}
+```
+
+## Estimación de tamaño  
+Utilizando la función `group_by` es posible obtener resultados por más de un nivel de agregación. 
+
+```{r tabs0, echo=TRUE, eval=FALSE}
+(tamano_etnia_sexo <- diseno %>% 
+     mutate(etnia = haven::as_factor(F2_A6_P5_ETNIA)) %>% 
+   group_by(etnia, Sexo) %>% 
+   cascade(
+       Nd = survey_total(vartype = c("se","ci")), 
+       .fill = "Total") %>% 
+   data.frame()
+   )
+
+```
+
+## Estimación de tamaño 
+\scriptsize
+```{r tabs0, echo=FALSE, eval=TRUE}
+```
+
+## Estimación de Proporciones Poblacionales
+
+En encuestas de hogares, a menudo es importante estimar la proporción de una característica particular en una población, como la proporción de personas que tienen un cierto nivel de educación, la proporción de hogares con acceso a servicios básicos, entre otros.
+
+La estimación de una proporción poblacional se puede hacer utilizando la siguiente ecuación:
+
+$$
+\hat{\pi} = p = \frac{\sum_{i=1}^{n}\omega_{i} y_i}{\sum_{i=1}^{n}\omega_{i}}
+$$
+
+Donde:
+
+- $\hat{\pi}$ es la estimación de la proporción poblacional.
+- $n$ es el tamaño de la muestra.
+- $\omega_{i}$ son los pesos de muestreo para cada unidad de la muestra.
+- $y_{i}$ es la variable binaria que indica si la unidad de muestreo tiene la característica de interés (1 si la tiene, 0 si no la tiene).
+
+
+
+## Estimación de proporción de urbano y rural 
+
+El procedimiento estándar para el calculo de proporciones es crear una _variable dummy_ y sobre está realizar las operaciones. Sin embargo, la librería `srvy` nos simplifica el calculo, mediante la sintaxis. 
+
+```{r}
+(prop_Area <- diseno %>% group_by(Area) %>% 
+   summarise(
+     prop = survey_mean(vartype = c("se","ci"), 
+                        proportion = TRUE )))
+```
+Note que, se utilizo la función `survey_mean` para la estimación. 
+
+## Estimación de proporción de urbano y rural 
+La función idónea para realizar la estimación de las proporciones es `survey_prop` y la sintaxis es como sigue: 
+
+```{r}
+(prop_area2 <- diseno %>% group_by(Area) %>% 
+   summarise(
+     prop = survey_prop(vartype = c("se","ci") )))
+```
+
+## Proporción de hombres y mujeres en la área urbana 
+Si el interés es obtener la estimación para una subpoblación, procedemos así: 
+```{r}
+(prop_sexoU <- sub_Urbano %>% group_by(Sexo) %>% 
+   summarise(
+       prop = survey_prop(vartype = c("se","ci"))))
+```
+
+
+> **¿Cómo estimar el Proporción de hombres dado que están en zona rural?**
+
+## Proporción de hombres y mujeres en la zona  rural
+```{r}
+(prop_sexoR <- sub_Rural %>% group_by(Sexo) %>% 
+   summarise(
+     n = unweighted(n()),
+     prop = survey_prop(vartype = c("se","ci"))))
+
+```
+
+> **¿Cómo estimar el Proporción de hombres en la área rural dado que es hombre?** 
+
+
+## Proporción de hombres en la área urbana y rural
+
+```{r}
+(prop_ZonaH <- sub_Hombre %>% group_by(Area) %>% 
+   summarise(
+     prop = survey_prop(vartype = c("se","ci"))))
+
+```
+
+> **¿Cómo estimar el Proporción de mujeres en la área rural dado que es mujer?** 
+
+## Proporción de mujeres en la área urbana y rural
+
+```{r}
+(prop_ZonaM <- sub_Mujer %>% group_by(Area) %>% 
+   summarise(
+    prop = survey_prop(vartype = c("se","ci"))))
+
+```
+
+## Proporción de hombres en la área urbana y rural
+
+Con el uso de la función `group_by` es posible estimar un mayor numero de niveles de agregación al combinar dos o más variables. 
+
+```{r, prop_ZonaH_edad, eval=FALSE}
+(prop_ZonaH_edad <- sub_Hombre %>%
+   group_by(Area, Edad_cat ) %>% 
+   summarise(
+     prop = survey_prop(vartype = c("se","ci")))%>%
+   data.frame())
+```
+
+## Proporción de hombres en la zona urbana y rural
+
+```{r, prop_ZonaH_edad, eval=TRUE, echo=FALSE}
+```
+
+## Proporción de mujeres en la zona urbana y rural
+
+```{r,  prop_ZonaM_edad, eval=FALSE, echo=TRUE}
+(prop_ZonaM_Pobreza <- sub_Mujer %>% 
+   group_by(Area, Edad_cat) %>% 
+   summarise(
+     prop = survey_prop(vartype = c("se","ci"))) %>%
+   data.frame())
+
+```
+\tiny
+
+```{r, prop_ZonaM_edad, eval=TRUE, echo=FALSE}
+```
+
+## Proporción de hombres en la area  disponible para trabajar
+
+```{r, prop_ZonaH_disponible, eval=FALSE,echo=TRUE}
+#F2_A8_P13_DISPONIBLETRABAJAR:	Estaba disponible para trabajar
+
+(prop_ZonaH_disponible <- sub_Hombre %>%
+    mutate(disponible = haven::as_factor(F2_A8_P13_DISPONIBLETRABAJAR)) %>%
+   group_by(Area, disponible) %>% 
+   summarise(
+     prop = survey_prop(vartype = c("se","ci"))) %>%
+   data.frame())
+
+```
+
+## Proporción de hombres en la área disponible para trabajar
+\tiny
+
+```{r, prop_ZonaH_disponible, eval=TRUE, echo=FALSE}
+```
+
+## Proporción de mujeres en la área urbana y rural
+
+```{r,prop_ZonaM_disponible, eval=FALSE}
+(prop_ZonaM_disponible <- sub_Mujer %>% 
+    mutate(disponible = haven::as_factor(F2_A8_P13_DISPONIBLETRABAJAR)) %>%
+   group_by(Area, disponible) %>% 
+   summarise( prop = survey_prop(vartype = c("se","ci"))) %>%
+   data.frame())
+```
+
+## Proporción de mujeres en la área urbana y rural
+
+```{r,prop_ZonaM_disponible, eval=TRUE, echo=FALSE}
+```
+
+
+
+## ¡Gracias!
+
+::: yellow
+*Email*: [andres.gutierrez\@cepal.org](mailto:andres.gutierrez@cepal.org){.email}
+:::
