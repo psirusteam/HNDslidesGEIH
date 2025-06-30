@@ -500,6 +500,106 @@ p_{k} & = & \frac{{\displaystyle \sum_{h=1}^{H}\sum_{\alpha=1}^{\alpha_{h}}\sum_
 Estos métodos permiten estimar proporciones para variables binarias y multinomiales en el contexto de encuestas de hogares.
 
 
+## Tabla Zona Vs Sexo
+
+Haciendo uso de la función  `group_by` organizada en forma de `data.frame`. 
+
+```{r, tab2, eval=FALSE}
+diseno <- diseno %>% 
+   mutate(etnia = haven::as_factor(F2_A6_P5_ETNIA))
+(
+  prop_sexo_etnia <- diseno %>% 
+    group_by(etnia, Sexo) %>%
+    summarise(
+      prop = survey_prop(vartype = c("se", "ci"))) %>% 
+    data.frame()
+)
+
+```
+
+Esta forma de organizar la información es recomendable cuando el realizar el análisis sobre las estimaciones puntuales.
+
+## Tabla Etnia Vs Sexo
+
+```{r, tab2, echo = FALSE, eval = TRUE}
+```
+
+## Tablas de doble entrada. 
+Una alternativa es utilizar la función `svyby` con la siguiente sintaxis. 
+
+```{r}
+tab_Sex_etnia <- svyby(~Sexo,  ~etnia, diseno, svymean)
+tab_Sex_etnia %>% select(-"se.Sexo1. Hombre", -"se.Sexo2. Mujer")
+```
+
+## Tablas de doble entrada.
+
+```{r}
+tab_Sex_etnia %>% select(-"Sexo1. Hombre", -"Sexo2. Mujer")
+```
+
+## Tablas de doble entrada. 
+Para la estimación de los intervalos de confianza utilizar la función `confint`.
+```{r}
+ confint(tab_Sex_etnia) %>% as.data.frame()
+```
+
+## Prueba de independencia $\chi^{2}$
+
+- La prueba de independencia $\chi^{2}$ se utiliza para determinar si dos variables cualitativas son independientes o si hay una asociación entre ellas.
+
+- La prueba se aplica comúnmente a tablas de contingencia, especialmente las $2\times2$.
+
+- La fórmula para el estadístico $\chi^{2}$ de Pearson es:
+
+$$ 
+\chi^{2} = n_{++}\sum_{r}\sum_{c}\frac{(p_{rc}-\hat{\pi}_{rc})^{2}}{\hat{\pi}_{rc}}
+$$
+
+- Donde $\hat{\pi}_{rc}$ se calcula como:
+
+$$
+\hat{\pi}_{rc} = \frac{n_{r+}}{n_{++}} \cdot \frac{n_{+c}}{n_{++}} \cdot p_{r+} \cdot p_{+c}
+$$
+
+
+
+## Prueba de independencia. 
+Para realizar la prueba de independencia $\chi^{2}$ puede ejecuta la siguiente linea de código. 
+
+```{r}
+svychisq(~Sexo + etnia, diseno, statistic="F")
+```
+
+Más adelante se profundiza en la metodología de esta prueba.
+
+
+## Tablas de doble entrada. 
+
+```{r, tab_02, echo=TRUE,eval=FALSE}
+(tab_Sex_Ocupa <- svyby(~Sexo,  ~disponible,
+                       diseno, svymean))
+```
+
+```{r, tab_02, echo=FALSE,eval=TRUE}
+```
+
+## Tablas de doble entrada 
+```{r}
+confint(tab_Sex_Ocupa) %>% as.data.frame()
+```
+
+
+## Prueba de independencia. 
+
+La prueba de independencia $\chi^{2}$ se obtiene con la siguiente linea de código. 
+
+```{r}
+svychisq(~Sexo + disponible, 
+         design = diseno,  statistic="F")
+```
+
+
 
 ## ¡Gracias!
 
