@@ -600,6 +600,215 @@ svychisq(~Sexo + disponible,
 ```
 
 
+## Tablas de doble entrada. 
+
+
+```{r}
+#F2_A6_P7_SEGUROMEDIC__1	Cobertura seguro social (IHSS)
+
+diseno <- diseno %>%
+  mutate(SEGUROMEDIC = haven::as_factor(F2_A6_P7_SEGUROMEDIC__1), 
+         DEPARTAMENTO  = haven::as_factor(F1_A0_DEPARTAMENTO ))
+
+tab_dam_IHSS <- 
+  svyby( ~SEGUROMEDIC, ~DEPARTAMENTO, diseno, svymean)
+```
+
+## Tablas de doble entrada. 
+
+```{r, teb_temp_IHSS, eval=FALSE, echo=TRUE}
+tab_dam_IHSS %>% select(-"se.SEGUROMEDICNo",
+         -"se.SEGUROMEDICSí")
+```
+\tiny
+
+```{r, teb_temp_IHSS, eval=TRUE, echo=FALSE}
+```
+
+## Tablas de doble entrada.
+```{r, teb_temp_IHSS_se, eval=FALSE, echo=TRUE}
+tab_dam_IHSS %>% 
+select("se.SEGUROMEDICNo", "se.SEGUROMEDICSí")
+```
+\tiny
+```{r, teb_temp_IHSS_se, eval=TRUE, echo=FALSE}
+```
+
+
+## Prueba de independencia. 
+
+Una vez más la prueba de independencia es: 
+```{r}
+svychisq( ~SEGUROMEDIC + DEPARTAMENTO,, 
+         design = diseno,  statistic="F")
+```
+
+## Razón de odds
+
+
+- La razón de odds es una medida que expresa la probabilidad de que un evento ocurra en comparación con la probabilidad de que no ocurra.
+
+- Es una forma de cuantificar la asociación entre los niveles de una variable y un factor categórico.
+
+- La razón de odds se calcula como la proporción de la probabilidad de éxito (ocurrencia del evento) sobre la probabilidad de fracaso (no ocurrencia del evento).
+
+- La fórmula general para la razón de odds es:
+
+  $$Odds = \frac{P(\text{Éxito})}{P(\text{Fracaso})}$$
+
+- Se utiliza comúnmente en estadística y análisis de datos para evaluar la asociación entre variables y en modelos de regresión logística.
+
+
+
+
+## Razón de obbs
+
+
+```{r, echo = TRUE, eval = TRUE}
+diseno <-
+  diseno %>% 
+  mutate(SEGUROMEDIC2 = case_when(SEGUROMEDIC == "Sí" ~ 1,
+                       SEGUROMEDIC == "No" ~ 0,
+                             TRUE ~ NA_real_))
+(tab_Sex <- svyby(~SEGUROMEDIC2,  ~Sexo, diseno,
+                 svymean, vartype = c("se", "ci")))
+
+svycontrast(tab_Sex, quote(`1. Hombre`/`2. Mujer`)  )
+
+```
+
+## Razón de obbs
+
+```{r, echo = TRUE, eval = TRUE}
+tab_Sex_IHSS <- 
+   svymean(~interaction (Sexo, SEGUROMEDIC), diseno, 
+             se=T, na.rm=T, ci=T, keep.vars=T) 
+  tab_Sex_IHSS %>%  as.data.frame()
+
+```
+
+## Razón de obbs
+Suponga que se desea calcular la siguiente razón de obbs. 
+
+$$
+  \text{Razón de odds} = \frac{\frac{P(\text{SEGUROMEDIC = No} \mid \text{Hombre})}{P(\text{SEGUROMEDIC = Sí} \mid \text{Hombre})}}{\frac{P(\text{SEGUROMEDIC = No} \mid \text{Mujer})}{P(\text{SEGUROMEDIC = Sí} \mid \text{Mujer})}} 
+$$
+
+
+La forma de cálculo en sería: 
+
+\scriptsize 
+
+```{r, echo = TRUE, eval = TRUE}
+ svycontrast(tab_Sex_IHSS, 
+quote(
+  (`interaction(Sexo, SEGUROMEDIC)1. Hombre.No`/`interaction(Sexo, SEGUROMEDIC)1. Hombre.Sí`)/
+(`interaction(Sexo, SEGUROMEDIC)2. Mujer.No`/`interaction(Sexo, SEGUROMEDIC)2. Mujer.Sí`)))
+```
+
+## Diferencia de proporciones en tablas de contingencias
+
+Como lo menciona *Heeringa, S. G. (2017)* las estimaciones de las proporciones de las filas en las tablas de doble entrada son, de hecho, estimaciones de subpoblaciones en las que la subpoblación se define por los niveles de la variable factorial. Ahora bien, si el interés se centra en estimar diferencias de las proporciones de las categorías entre dos niveles de una variable factorial, se pueden utilizando contrastes. 
+
+## Contrastes 
+El interés ahora es realizar en contraste de proporciones, por ejemplo: $\hat{p}_H - \hat{p}_M$
+
+```{r}
+(tab_sex_IHSS <- svyby(~SEGUROMEDIC2, ~Sexo, 
+                          diseno , 
+                      svymean, na.rm=T,
+                      covmat = TRUE,
+                      vartype = c("se", "ci")))
+```
+
+-   *Paso 1:* Calcular la diferencia de estimaciones 
+```{r}
+0.1353 - 0.1073			 
+```
+
+## Contrastes de la diferencia de proporciones
+
+Con la función `vcov` obtiene la matriz de covarianzas
+
+```{r}
+library(kableExtra)
+vcov(tab_sex_IHSS)%>% as.data.frame() %>% 
+  kable(digits = 10,
+        format.args = list(scientific = FALSE))
+```
+-   *Paso 2:* El cálculo del error estándar es:   
+
+```{r}
+sqrt(0.00002978 + 0.00002129 - 2*0.00001523)
+```
+
+
+## Contrastes de la diferencia de proporciones en R
+Para realizar la diferencia de proporciones se hace uso de la función `svycontrast`. 
+
+```{r}
+svycontrast(tab_sex_IHSS,
+            list(diff_Sex = c(1, -1))) %>%
+  data.frame()
+
+```
+
+
+## Contrastes de la diferencia de proporciones 
+Diferencia en disponibilidad para el empleo por sexo. 
+```{r, tab_sex_desempleo2, echo=TRUE, eval=FALSE}
+diseno <-
+  diseno %>%
+  mutate(disponible2 = case_when(disponible == "Sí" ~ 1,
+                                 disponible == "No" ~ 0,
+                                 TRUE ~ NA_real_))
+(
+  tab_sex_desempleo <- svyby(
+    ~ disponible2,
+    ~ Sexo,
+    diseno ,
+    svymean,
+    na.rm = T,
+    covmat = TRUE,
+    vartype = c("se", "ci")
+  )
+)
+```
+
+## Contrastes de la diferencia de proporciones 
+
+```{r, tab_sex_desempleo2, echo=FALSE, eval=TRUE}
+```
+
+-   *Paso 1*: Diferencia de las estimaciones 
+```{r}
+0.1869 - 0.1646 	
+```
+
+## Contrastes de la diferencia de proporciones
+
+Estimación de la matriz de covarianza: 
+
+```{r}
+vcov(tab_sex_desempleo) %>% as.data.frame() %>% 
+  kable(digits = 10,
+        format.args = list(scientific = FALSE))
+```
+
+-   *Paso 2*: Estimación del error estándar. 
+```{r}
+sqrt(0.00011491	 + 0.00008382 - 2*0.00002256)
+```
+
+## Contrastes de la diferencia de proporciones en R 
+Siguiendo el ejemplo anterior se tiene que: 
+```{r}
+svycontrast(tab_sex_desempleo,
+            list(diff_Sex = c(1, -1))) %>%
+  data.frame()
+
+```
+
 
 ## ¡Gracias!
 
