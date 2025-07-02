@@ -1,0 +1,660 @@
+---
+title: "Análisis de encuestas de hogares con R"
+subtitle: "Módulo 4: Modelos de regresión"
+author: |
+  | Andrés Gutiérrez.
+  | Stalyn Guerrero 
+institute: "CEPAL - Unidad de Estadísticas Sociales"
+format: 
+  beamer: 
+    colortheme: dove
+    fonttheme: default
+    incremental: false
+    aspectratio: 1610
+    #theme: Berkeley
+    toc: true
+    slide_level: 2
+    #highlight: pygments
+Email: andres.gutierrez@cepal.org
+lang: es
+editor_options:
+  markdown:
+    wrap: 90
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE, warning = FALSE, message = FALSE,echo = TRUE,
+                      error = FALSE, cache.path = "00_Caches/04_Regresion/")
+options(digits = 4)
+options(tinytex.verbose = TRUE)
+library (survey)
+library(srvyr)
+library(convey)
+library(TeachingSampling)
+library(printr)
+library(stargazer)
+library(jtools)
+library(broom)
+library(ggpmisc)
+library(modelsummary)
+library(nortest)  #REALIZA 10 PRUEBAS 
+library(moments)  #REALIZA 1 PRUEBA
+library(svydiags)
+library(magrittr)
+library(purrr)
+library(haven)
+
+theme_cepal <- function(...) theme_light(10) + 
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        legend.position="bottom", 
+        legend.justification = "left", 
+        legend.direction="horizontal",
+        plot.title = element_text(size = 20, hjust = 0.5),
+        ...) 
+```
+
+# Modelos de regresión bajo diseños de muestreo complejos
+
+## Introducción 
+
+- Un modelo matemático es una relación funcional entre variables.
+- El objetivo es encontrar modelos que relacionen variables de entrada con una variable de salida.
+- A lo largo de la historia, varios autores han discutido el impacto de los diseños muestrales complejos en las inferencias relacionadas con modelos de regresión.
+
+
+## Introducción 
+
+- **Kish y Frankel (1974):** Fueron los primeros en abordar, de manera empírica, cómo los diseños muestrales complejos afectan las inferencias en modelos de regresión.
+
+- **Fuller (1975):** Desarrolló un estimador de varianza que considera ponderaciones desiguales de observaciones, especialmente relevantes en contextos de muestreo complejo de dos etapas.
+
+- **Sha et al. (1977):** Discutieron las violaciones de supuestos en modelos de regresión lineal y presentaron evaluaciones empíricas del desempeño de estimadores de varianza basados en la linealización para modelos de regresión lineal con datos de encuestas.
+
+- **Binder (1983):** Se centró en las distribuciones muestrales de estimadores para parámetros de regresión en poblaciones finitas y estimadores de varianza relacionados.
+
+## Introducción 
+
+- **Skinner et al. (1989):** Trabajaron en estimadores de varianza para los coeficientes de regresión que permitieron diseños de muestras complejas, y recomendaron el uso de métodos de linealización u otros métodos para la estimación de la varianza.
+
+- **Fuller (2002):** Ofreció un resumen de los métodos de estimación para modelos de regresión que involucran información relacionada con muestras complejas.
+
+- **Pfeffermann (2011):** Discutió enfoques basados en el ajuste de modelos de regresión lineal a datos de encuestas de muestras complejas, respaldando el uso de un método "q-weighted."
+
+
+## Modelos de Regresión Lineal Simple y Múltiple
+
+- Un modelo de regresión lineal simple se define como 
+$$y = \beta_{0} + \beta_{1}x + \varepsilon$$.
+
+- Los modelos de regresión lineal múltiples extienden este concepto para múltiples variables predictoras: 
+$$y = \boldsymbol{X}\boldsymbol{\beta} + \varepsilon$$.
+
+- El valor esperado de la variable dependiente condicionado a las variables independientes se representa como $E(y|x)$.
+
+## Consideraciones en Modelos de Regresión
+
+- $E(\varepsilon_{i}|x_{i}) = 0$: El valor esperado de los residuos condicionado a las covariables es igual a 0.
+
+- $Var(\varepsilon_{i}|x_{i}) = \sigma_{y,x}^{2}$: Homogeneidad de varianza, la varianza de los residuos condicionados es constante.
+
+- $\varepsilon_{i}|x_{i} \sim N(0, \sigma_{y,x}^{2})$: Normalidad en los errores, los residuos condicionados se distribuyen normalmente.
+
+- $cov(\varepsilon_{i}, \varepsilon_{j}|x_{i},x_{j})$: Independencia en los residuos, los residuos en diferentes sujetos no están correlacionados con los valores de sus variables predictoras.
+
+## Resultados para el modelo de regresión 
+
+Una vez definido el modelo de regresión lineal y sus supuestos, se puede deducir los siguiente:
+
+
+
+\begin{eqnarray*}
+\hat{y} & = & E\left(y\mid x\right)\\
+ & = & E\left(\boldsymbol{x}\boldsymbol{\beta}\right)+E\left(\varepsilon\right)\\
+ & = & \boldsymbol{x}\boldsymbol{\beta}+0\\
+ & = & \beta_{0}+\beta_{1}x_{1}+\cdots+\beta_{p}x_{p}
+\end{eqnarray*}
+
+
+y Adicionalmente,
+
+\begin{eqnarray*}
+var\left(y_{i}\mid x_{i}\right) & = & \sigma_{y,x}^{2},\\
+cov\left(y_{i},y_{j}\mid x_{i},x_{j}\right) & \text{=} & 0\\
+ & \text{y}\\
+y_{i} & \sim & N\left(x_{i}\boldsymbol{\beta},\sigma_{y,x}^{2}\right)
+\end{eqnarray*}
+
+## Estimación de los parámetros en un modelo de regresión simple.
+
+La estimación del coeficiente de regresión $\beta_1$ en un modelo de regresión simple con muestras complejas involucra el uso de ponderaciones y totales. El estimador $\hat{\beta}_1$ se calcula como un cociente de totales ponderados.
+
+
+
+\begin{eqnarray*}
+\hat{\beta_{1}} & = & \frac{{\displaystyle \sum_{h}^{H}\sum_{\alpha}^{a_{h}}\sum_{i=1}^{n_{h\alpha}}\omega_{h\alpha i}\left(y_{h\alpha i}-\bar{y}_{\omega}\right)\left(x_{h\alpha i}-\bar{x}_{\omega}\right)}}{{\displaystyle \sum_{h}^{H}\sum_{\alpha}^{a_{h}}\sum_{i=1}^{n_{h\alpha}}\omega_{h\alpha i}\left(x_{h\alpha i}-\bar{x}_{\omega}\right)^{2}}}\\
+ & = & \frac{t_{xy}}{t_{x^{2}}}
+\end{eqnarray*}
+
+
+## Varianza estimada
+
+La varianza del estimador $\hat{\beta}_1$ se calcula considerando la varianza de los totales ponderados y sus covarianzas. Esta varianza estimada tiene en cuenta el diseño muestral y la estructura de ponderación.
+
+\begin{eqnarray*}
+var\left(\hat{\beta_{1}}\right) & = & \frac{var\left(t_{xy}\right)+\hat{\beta}_{1}^{2}var\left(t_{x^{2}}\right)-2\hat{\beta}_{1}cov\left(t_{xy},t_{x^{2}}\right)}{\left(t_{x^{2}}\right)^{2}}
+\end{eqnarray*}
+
+
+## Extensión a modelos de regresión múltiple:
+
+Para modelos de regresión múltiple, la estimación de la varianza se generaliza a través de una matriz de varianza-covarianza que involucra los coeficientes de regresión.
+
+
+\begin{eqnarray*}
+var\left(\hat{\boldsymbol{\beta}}\right)=\hat{\Sigma}\left(\hat{\boldsymbol{\beta}}\right) & = & \left[\begin{array}{cccc}
+var\left(\hat{\beta}_{0}\right) & cov\left(\hat{\beta}_{0},\hat{\beta}_{1}\right) & \cdots & cov\left(\hat{\beta}_{0},\hat{\beta}_{p}\right)\\
+cov\left(\hat{\beta}_{0},\hat{\beta}_{1}\right) & var\left(\hat{\beta}_{1}\right) & \cdots & cov\left(\hat{\beta}_{1},\hat{\beta}_{p}\right)\\
+\vdots & \vdots & \ddots & \vdots\\
+cov\left(\hat{\beta}_{0},\hat{\beta}_{p}\right) & cov\left(\hat{\beta}_{1},\hat{\beta}_{p}\right) & \cdots & var\left(\hat{\beta}_{p}\right)
+\end{array}\right]
+\end{eqnarray*}
+
+Este enfoque de estimación garantiza que se tengan en cuenta las particularidades del diseño muestral en la inferencia sobre los coeficientes de regresión. 
+
+
+## Aplicación en encuestas de hogares 
+
+El proceso inicia con la lectura de la muestra y  definiendo algunas variables de interés. 
+
+- CANTIDAD_PERSONAS:	Cantidad de miembros pertenecientes al hogar.
+
+- YDISPONIBLE_PER:	Corresponde al ingreso disponible del hogar, dividido por la cantidad de personas en el hogar.
+
+-  GASTO_CORRIENTE_HOGAR:	Gasto corriente del Hogar
+
+- CONSUMO_FINAL_HOGAR:	Gasto de consumo final del Hogar
+
+```{r, echo = FALSE }
+options(survey.lonely.psu="adjust")
+encuesta <- readRDS("Imagenes/02_variable_continua/ENIGH_HND_Hogar.rds")
+library(srvyr)
+encuesta <- encuesta %>% # Base de datos.
+  mutate(estrato = haven::as_factor(F1_A0_ESTRATO), 
+         Area = haven::as_factor(F1_A0_AREA), 
+         ingreso_per  = ifelse(YDISPONIBLE_PER < 0 ,0 ,YDISPONIBLE_PER ) , 
+         ingreso_hog = ingreso_per* CANTIDAD_PERSONAS)
+```
+
+## Aplicación en encuestas de hogares 
+\tiny
+```{r, echo=FALSE}
+encuesta %>% # Base de datos.
+  dplyr::select(CANTIDAD_PERSONAS, 
+         GASTO_CORRIENTE_HOGAR, 
+         CONSUMO_FINAL_HOGAR,
+         YDISPONIBLE_PER,
+         ingreso_per, 
+         ingreso_hog) %>% head(20)
+```
+
+## Definición del objeto `survey.design` 
+
+```{r}
+diseno <-  encuesta %>% as_survey_design(
+    strata = estrato,  # Id de los estratos.
+    ids = F1_A0_UPM,         # Id para las observaciones.
+    weights = Factor,      # Factores de expansión. 
+    nest = TRUE           # Valida el anidado dentro del estrato
+  )
+```
+
+### Sub-grupos
+
+Dividir la muestra en sub-grupos de la encuesta.
+
+```{r}
+sub_Urbano <- diseno %>%  filter(Area == "1. Urbana") # 
+sub_Rural  <- diseno %>%  filter(Area == "2. Rural") # 
+```
+
+## Scatterplot con los datos encuesta sin ponderar
+
+Una sintaxis similar permite construir el scatterplot en la muestra. 
+
+```{r, plot2, echo = TRUE, eval = FALSE}
+plot_sin <- 
+  ggplot(data = encuesta,
+         aes(x = GASTO_CORRIENTE_HOGAR, y = ingreso_hog)) +
+  geom_point() +
+  geom_smooth(method = "lm",
+              se = FALSE,
+              formula = y ~ x) +
+  theme_cepal()
+plot_sin <- plot_sin + stat_poly_eq(formula = y~x, 
+  aes(label = paste(..eq.label..,
+     ..rr.label.., sep = "~~~"), size = 5),
+  parse = TRUE)
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot_sin,filename =  "Imagenes/04_Regresion/02_Fig_Regresion_sin_ponde.png")
+```
+
+## Scatterplot con los datos encuesta sin ponderar
+
+![Relación del ingreso y el gasto en la muestra sin ponderar ](Imagenes/04_Regresion/02_Fig_Regresion_sin_ponde.png){width="450"}
+
+## Modelo sin ponderar
+El modelo ignorando los factores de expansión quedas así: 
+```{r, tab2, echo = TRUE, eval = FALSE}
+fit_sinP <- lm(ingreso_hog ~GASTO_CORRIENTE_HOGAR, data = encuesta)
+stargazer(fit_sinP, header = FALSE,
+          title = "Modelo encuesta Sin ponderar", 
+          style = "ajps")
+```
+
+## Modelo sin ponderar
+
+```{r, tab2, results='asis', echo = FALSE, eval = TRUE}
+```
+
+## Scatterplot con los datos encuesta ponderado
+
+Para que el gráfico tenga en cuenta las ponderaciones debe agregar ` mapping = aes(weight = wk)` en la función `geom_smooth`.
+```{r, plot3, echo = TRUE, eval = FALSE}
+plot_Ponde <- 
+  ggplot(data = encuesta,
+         aes(x = GASTO_CORRIENTE_HOGAR, y = ingreso_hog)) +
+  geom_point(aes(size = Factor)) +
+  geom_smooth(method = "lm",
+              se = FALSE,
+              formula = y ~ x, 
+              mapping = aes(weight = Factor)) +
+  theme_cepal()
+plot_Ponde <- plot_Ponde + stat_poly_eq(formula = y~x, 
+  aes(weight = Factor, 
+    label = paste(..eq.label..,
+      ..rr.label.., sep = "~~~")), 
+  parse = TRUE,size = 5)
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot_Ponde, filename =  "Imagenes/04_Regresion/03_Fig_Regresion_con_ponde.png")
+```
+
+
+## Scatterplot con los datos encuesta sin ponderar
+
+![Relación del ingreso y el gasto en la muestra sin ponderar ](Imagenes/04_Regresion/03_Fig_Regresion_con_ponde.png){width="450"}
+
+## Modelo ponderado `lm`
+
+La función `lm` permite incluir los `weights` en la estimación de los coeficientes.
+
+```{r, tab3, echo = TRUE, eval = FALSE}
+fit_Ponde <- lm(ingreso_hog ~ GASTO_CORRIENTE_HOGAR, 
+                data = encuesta, weights = Factor)
+stargazer(fit_Ponde, header = FALSE,
+          title = "Modelo encuesta ponderada", 
+          style = "ajps")
+```
+
+## Modelo ponderado lm
+
+```{r, tab3, results='asis', echo = FALSE, eval = TRUE}
+```
+
+
+
+## Modelo ponderado svyglm
+
+Ahora, emplee la función `svyglm` de `survey`
+
+```{r, tab4, echo = TRUE, eval = TRUE}
+fit_svy <- svyglm(ingreso_hog ~ GASTO_CORRIENTE_HOGAR, 
+                  design = diseno)
+```
+
+## Resumen del Modelo
+
+```{r, tab4a, results='asis', echo = FALSE, eval = TRUE}
+stargazer(fit_svy, header = FALSE,
+          title = "Modelo encuesta ponderada, svyglm", 
+          style = "ajps", omit.stat = "ll")
+```
+
+## Comparando los resultados
+
+```{r, plot4, echo=TRUE, eval=FALSE}
+df_model <- data.frame(
+  intercept = c(coefficients(fit_sinP)[1], 
+               coefficients(fit_Ponde)[1],
+               coefficients(fit_svy)[1]), 
+  slope = c(  coefficients(fit_sinP)[2], 
+               coefficients(fit_Ponde)[2],
+               coefficients(fit_svy)[2]),
+  Modelo = c("Sin ponderar", 
+             "Ponderado(lm)", "Ponderado(svyglm)"))
+
+plot_Ponde2  <- plot_Ponde +  geom_abline( data = df_model,
+    mapping = aes( slope = slope,
+      intercept = intercept, linetype = Modelo,
+      color = Modelo ), size = 2
+  )
+
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot_Ponde2, filename =  "Imagenes/04_Regresion/04_Fig_Comparando_Regresion.png")
+```
+
+
+## Comparando los resultados
+
+![Resultados de los modelos ](Imagenes/04_Regresion/04_Fig_Comparando_Regresion.png){width="450"}`
+
+## Comparando los resultados
+
+```{r, echo = FALSE, eval = FALSE}
+options("modelsummary_format_numeric_latex" = "plain")
+modelsummary(
+  list(
+    "Sin Pond" = fit_sinP,
+    "Ponde(lm)" = fit_Ponde,
+    "Ponde(svyglm)" = fit_svy
+  ),
+  statistic = c("p = ({p.value})"),
+  gof_omit = 'BIC|Log',
+  output = "latex",
+  latex_engine = "kable"
+)
+
+```
+
+| Variable               | Sin Pond     | Ponde(lm)    | Ponde(svyglm) |
+|------------------------|-------------:|-------------:|--------------:|
+| (Intercept)            | -1722.608    | -1209.015    | -1209.015     |
+| p-value                | (<0.001)     | (0.004)      | (0.375)       |
+| GASTO_CORRIENTE_HOGAR  | 1.391        | 1.378        | 1.378         |
+| p-value                | (<0.001)     | (<0.001)     | (<0.001)      |
+| Num.Obs.               | 8746         | 8746         | 8746          |
+| R2                     | 0.434        | 0.452        | 0.452         |
+| R2 Adj.                | 0.434        | 0.452        | -5.619        |
+| AIC                    | 204445.8     | 205813.2     | 202638.9      |
+| F                      | 6712.633     | 7213.379     | 288.839       |
+| RMSE                   | 28815.76     | 28817.66     | 28817.66      |
+
+
+# Diagnostico del modelo 
+
+
+## Diagnostico del modelo 
+
+
+**Adecuado Ajuste del Modelo**:
+  - Verificar que el modelo se ajuste adecuadamente a los datos recopilados en la encuesta.
+  - Evaluar si la relación funcional especificada es apropiada para representar las variables de interés.
+
+**Normalidad de Errores**:
+  - Examinar si los errores del modelo siguen una distribución normal.
+  - Esto es crucial para realizar pruebas de hipótesis precisas y estimar intervalos de confianza confiables.
+
+**Varianza Constante de Errores**:
+  - Asegurarse de que la varianza de los errores sea constante en todos los niveles de las variables independientes.
+  - La heterocedasticidad puede impactar en las pruebas y la interpretación de coeficientes.
+
+## Diagnostico del modelo 
+
+**Errores No Correlacionados**:
+  - Evaluar si los errores pueden considerarse no correlacionados entre sí.
+  - La autocorrelación de errores puede afectar la eficiencia de las estimaciones.
+
+**Datos Influyentes**:
+  - Identificar valores atípicos o datos influyentes que tienen un efecto desproporcionadamente grande en el modelo de regresión.
+  - Estos datos deben tratarse con precaución y su impacto debe ser evaluado.
+
+**Valores Atípicos (Outliers)**:
+
+## Estimación del $R^{2}$ y $R_{adj}^{2}$
+
+- En análisis de regresión, el coeficiente de determinación ($R^{2}$) mide la variabilidad explicada por el modelo.
+
+- El $R_{\omega}^{2}$ ajusta $R^{2}$ para muestras complejas, considerando ponderaciones de la muestra.
+
+- $R_{\omega}^{2}$ se basa en la suma de cuadrados totales ponderada (WSST) y la suma de cuadrados del error ponderada (WSSE).
+
+- La fórmula de $R^{2}$ es $1 - \frac{SSE}{SST}$, donde SSE es la suma de cuadrados del error y SST es la suma de cuadrados totales.
+
+
+## Estimación del $R^{2}$ y $R_{adj}^{2}$
+
+- Para $R_{\omega}^{2}$, la fórmula es $1 - \frac{WSSE}{WSST}$, considerando las ponderaciones de la muestra.
+
+
+\begin{eqnarray*}
+\widehat{WSSE_{\omega}} & = & \sum_{h}^{H}\sum_{\alpha}^{a_{h}}\sum_{i=1}^{n_{h\alpha}}\omega_{h\alpha i}\left(y_{h\alpha i}-x_{h\alpha i}\hat{\beta}\right)^{2}
+\end{eqnarray*}
+
+
+- Se utiliza el coeficiente de determinación ajustado ($R_{adj}^{2}$) para tener en cuenta el tamaño de la muestra y el número de predictores en el modelo.
+
+- $R_{adj}^{2}$ se calcula como $1 - \frac{(n-1)}{(n-p)}R_{\omega}^{2}$, donde $n$ es el tamaño de la muestra y $p$ es el número de predictores.
+
+
+## Estimación del $R^2$ para el modelo del ingreso.
+
+```{r, tab7.a, echo = TRUE, eval = FALSE}
+fit_svy <- svyglm(ingreso_hog ~ GASTO_CORRIENTE_HOGAR , 
+                  design =  diseno,family=stats::gaussian())
+
+medY <- diseno %>% summarise(medY = survey_mean(ingreso_hog))
+
+diseno %<>% mutate(
+  ypred = fitted(fit_svy, type = "response"),
+  medY = medY,
+  sst = (ingreso_hog - medY$medY)^2,
+  sse = (ypred - medY$medY)^2
+  )
+
+diseno %>% summarise(WSST = survey_total(sst),
+                     WSSE = survey_total(sse)) %>% 
+  transmute(WSST, WSSE, R2 = WSSE/WSST)
+
+
+```
+
+## Estimación del $R^2$ para el modelo del ingreso
+El resultado para el $R^2$ es 
+
+```{r, tab7.a, echo = FALSE, eval = TRUE}
+```
+De forma alternativa es:  
+
+```{r, tab7, echo = TRUE, eval = TRUE}
+modNul <- svyglm(ingreso_hog ~ 1, design = diseno)
+s1 <- summary(fit_svy)
+s0 <-summary(modNul)
+
+WSST<- s0$dispersion
+WSSE<- s1$dispersion
+R2 = 1- WSSE/WSST
+R2
+```
+
+
+## Estimación del $R_{adj}^{2}$ para el modelo del ingreso
+
+Calculamos el $R_{adj}^{2}$ utilizando la fórmula adecuada. Asegúrate de definir los valores de `n` y `p` de acuerdo a tu modelo.
+
+```{r}
+n = nrow(encuesta)
+p = 2
+(R2Adj = 1 - ((n-1)/(n-p)) * R2)
+```
+
+## Metodología de los Q_Weighting de pfefferman
+
+Cuando trabajamos con datos de encuestas que siguen un diseño muestral complejo y es posible aplicar la metodología de los q-weights  **(Pffeferman, 2011)**., 
+
+1. **Ajuste del Modelo de Regresión a los Q-Weights:**
+   Inicialmente, ajustamos un modelo de regresión lineal a los q-weights en R. Esto se hace utilizando la función `lm()`.
+
+```{r}
+fit_wgt <- lm(1/Factor ~ GASTO_CORRIENTE_HOGAR, data = encuesta)
+```
+
+2. **Obtención de Predicciones de Q-Weights:**
+   A continuación, calculamos las predicciones de los q-weights para cada caso, utilizando las variables predictoras del modelo de regresión.
+
+```{r}
+qw <- predict(fit_wgt)
+summary(qw)
+```
+
+
+## Metodología de los Q_Weighting de pfefferman
+
+3. **Creación de Nuevos Q-Weights:**
+    Para obtener los q-weights ajustados, dividimos los weights originales por las predicciones calculadas en el paso anterior.
+
+```{r}
+   encuesta <- encuesta %>% mutate(wk1 = Factor/qw)
+```
+
+4. **Definición de un Diseño Muestral con Q-Weights:**
+   Usamos los nuevos q-weights obtenidos para definir un diseño muestral que refleje estos pesos.
+   
+```{r}
+diseno_qwgt <-  encuesta %>% 
+  as_survey_design(
+    strata = estrato,  # Id de los estratos.
+    ids = F1_A0_UPM,         # Id para las observaciones.
+    weights = wk1,      # Factores de expansión. 
+    nest = TRUE           # Valida el anidado dentro del estrato
+  )
+```
+
+
+## Modelos empleando los Q_Weighting
+
+Estimando los coeficientes del modelo con los Q_Weighting de pfefferman
+
+```{r}
+library(tidyr)
+fit_svy_qwgt <- svyglm(ingreso_hog ~ GASTO_CORRIENTE_HOGAR,
+                       design = diseno_qwgt)
+s1_qwgt <- summary(fit_svy_qwgt)
+tidy(fit_svy_qwgt)
+```
+
+## Calculo del $R^2$ y $R_{adj}^{2}$
+Obtenido el $R^2$
+
+```{r}
+WSST<- s0$dispersion
+WSSE<- s1_qwgt$dispersion
+(R2 = 1- WSSE/WSST)
+```
+
+Obtenido el  $R_{adj}^{2}$
+
+```{r}
+n = nrow(encuesta)
+p = 2
+(R2Adj = 1-((1-R2)*(n-1)/(n-1-1)))
+```
+
+## Modelos empleando los Q_Weighting
+
+```{r,echo=FALSE, eval=FALSE}
+modelsummary(list("svyglm(wgt)" = fit_svy, 
+                  "svyglm(qwgt)" = fit_svy_qwgt), 
+             output = "markdown", 
+              statistic = c("p = ({p.value})"),
+             title = "Comprando Modelos con Q Weighting",
+             gof_omit = 'R2 Adj.|BIC|Log')
+```
+
+
+| Variable               | svyglm(wgt)  | svyglm(qwgt) |
+|------------------------|-------------:|-------------:|
+| (Intercept)            | -1209.015    | -1306.548    |
+| p-value                | (0.375)      | (0.239)      |
+| GASTO_CORRIENTE_HOGAR  | 1.378        | 1.383        |
+| p-value                | (<0.001)     | (<0.001)     |
+| Num.Obs.               | 8746         | 8746         |
+| R2                     | 0.452        | 0.423        |
+| AIC                    | 202638.9     | 201262.1     |
+| F                      | 288.839      | 394.884      |
+| RMSE                   | 28817.66     | 28817.13     |
+
+Table: Comprando Modelos con Q Weighting 
+
+
+
+## Modelo propuesto
+
+Después de realizar la comparación entre las diferentes formas de estimar los coeficientes del modelo se opta  por la metodología consolidadas en  `svyglm`
+
+```{r, mod1, echo=TRUE, eval=FALSE, results='asis'}
+mod_svy <- svyglm(
+  ingreso_hog ~ GASTO_CORRIENTE_HOGAR + Area  ,
+                       design = diseno_qwgt)
+s1_final <- summary(mod_svy)
+
+stargazer(mod_svy, header = FALSE,single.row = T,
+           title = "Modelo propuesto", 
+           style = "ajps",  omit.stat=c("bic", "ll"))
+```
+
+## Resumen del modelo propuesto
+
+```{r,mod1, echo=FALSE,eval=TRUE,  results='asis'}
+```
+
+## Diagnósticos de los residuales
+
+En el diagnóstico de los modelos es crucial el análisis de los residuales. Estos análisis proporcionan, bajo el supuesto que el modelo ajustado es
+adecuado, una estimación de los errores.
+
+**Residuales Pearson**
+
+Los residuales de Pearson como sigue *(Heeringa)*
+
+$$
+r_{pi}=\left(y_{i}-\mu_{i}\left(\hat{\boldsymbol{\beta}}_{\omega}\right)\right)\sqrt{\frac{\omega_{i}}{V\left(\hat{\mu}_{i}\right)}}
+$$
+
+Donde, $\mu_{i}$ es el valor esperado de $y_{i}$,  $\omega_{i}$ es la ponderación de la encuesta para el i-ésimo individuo del diseño muestral complejo, Por último, $V(μ_{i})$ es la función de varianza del resultado.
+
+## Matriz **Hat** 
+
+Otra definición que se debe tener en consideración para el análisis de los residuales es el de la matriz hat, la cual se estima como:
+
+\begin{eqnarray*}
+H & = & W^{1/2}X\left(X'WX\right)^{-1}X'W^{1/2}
+\end{eqnarray*}
+
+donde,
+
+
+\begin{eqnarray*}
+W & = & diag\left\{ \frac{\omega_{1}}{V\left(\mu_{1}\right)\left[g'\left(\mu_{1}\right)\right]^{2}},...,\frac{\omega_{n}}{V\left(\mu_{n}\right)\left[g'\left(\mu_{n}\right)\right]^{2}}\right\} 
+\end{eqnarray*}
+
+$W$ es una matriz diagonal de $n\times n$ y $g()$ es la función de enlace del modelo lineal generalizado.
+
+
+
+## ¡Gracias!
+
+::: yellow
+*Email*: [andres.gutierrez\@cepal.org](mailto:andres.gutierrez@cepal.org){.email}
+:::
+
+
+
+
