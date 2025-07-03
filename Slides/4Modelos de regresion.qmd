@@ -600,11 +600,18 @@ Table: Comprando Modelos con Q Weighting
 Después de realizar la comparación entre las diferentes formas de estimar los coeficientes del modelo se opta  por la metodología consolidadas en  `svyglm`
 
 ```{r, mod1, echo=TRUE, eval=FALSE, results='asis'}
-mod_svy <- svyglm(
-  ingreso_hog ~ GASTO_CORRIENTE_HOGAR + Area  ,
-                       design = diseno_qwgt)
-s1_final <- summary(mod_svy)
+diseno_qwgt <-
+  diseno_qwgt %>% mutate(
+    TIPOVIVIENDA = as_factor(F1_A1_P1_TIPOVIVIENDA),
+    TIENEVEHICULOS = as_factor(F2_A2_P1_TIENEVEHICULOS))
 
+mod_svy <- svyglm(
+  log(ingreso_hog + 500) ~ log(GASTO_CORRIENTE_HOGAR +500) +
+  TIENEVEHICULOS + Area  ,
+  design = diseno_qwgt
+)
+
+s1_final <- summary(mod_svy)
 stargazer(mod_svy, header = FALSE,single.row = T,
            title = "Modelo propuesto", 
            style = "ajps",  omit.stat=c("bic", "ll"))
@@ -642,10 +649,538 @@ donde,
 
 
 \begin{eqnarray*}
-W & = & diag\left\{ \frac{\omega_{1}}{V\left(\mu_{1}\right)\left[g'\left(\mu_{1}\right)\right]^{2}},...,\frac{\omega_{n}}{V\left(\mu_{n}\right)\left[g'\left(\mu_{n}\right)\right]^{2}}\right\} 
+W & = & diag\left\{ \frac{\omega_{1}}{V\left(\mu_{1}\right)\left[g'\left(\mu_{1}\right)\right]^{2}}, \cdots ,\frac{\omega_{n}}{V\left(\mu_{n}\right)\left[g'\left(\mu_{n}\right)\right]^{2}}\right\} 
 \end{eqnarray*}
 
 $W$ es una matriz diagonal de $n\times n$ y $g()$ es la función de enlace del modelo lineal generalizado.
+
+
+## Distancia de cook
+
+Diagnostica si la i-ésima observación es influyente en la estimación del modelo, por estar lejos del centro de masa de los datos. Se calcula de la siguiente manera:
+
+$$
+c_{i}=\frac{w_{i}^{*}w_{i}e_{i}^{2}}{p\phi V\left(\hat{\mu}_{i}\right)\left(1-h_{ii}\right)^{2}}\boldsymbol{x}_{i}^{t}\left[\widehat{Var}\left(U_{w}\left(\hat{\boldsymbol{\beta}}_{w}\right)\right)\right]^{-1}\boldsymbol{x}_{i}
+$$
+
+Los elementos de la ecuación son: 
+
+-   $w_i^* =$ Pesos de la encuesta.
+-   $w_i$ Elementos por fuera de la diagonal de la matriz hat
+-   $e_i=$ residuales
+-   $p=$ número de parámetros del Modelo de regresión.
+-   $\phi =$ parámetro de dispersión en el glm
+-   $\widehat{Var}\left(U_{w}\left(\hat{\boldsymbol{\beta}}_{w}\right)\right) =$ estimación de
+    varianza linealizada de la ecuación de puntuación, que se utiliza para pseudo MLE en
+    Modelos lineales generalizados ajustados a datos de encuestas de muestras complejas
+
+## Distancia de cook
+
+Una vez que se ha determinado el valor de la $D$ de Cook para un elemento de muestra
+individual, se puede calcular la siguiente estadística de prueba para evaluar la
+importancia de la estadística $D$:
+
+$$
+\frac{\left(df-p+1\right)\times c_{i}}{df} \doteq F_{\left(p,df-p\right)}
+$$
+
+donde $df=$ grados de liberta basados en el diseño. Por otro lado, la literatura como *Tellez (2016)*, *Heeringa* considera a las observaciones influyentes cuando $c_{i}$ sean mayores a 2 o 3.
+
+
+## $D_fBeta_{(i)}$ 
+
+Este estadístico mide el cambio en la estimación
+del vector de coeficientes de regresión cuando la i-ésima observación
+es eliminada. Se evalúa con la siguiente expresión:
+
+$$
+D_fBeta_{(i)} = \hat{\boldsymbol{\beta}}-\hat{\boldsymbol{\beta}}_{\left(i\right)}=\frac{\boldsymbol{A}^{-1}\boldsymbol{X}_{\left(i\right)}^{t}\hat{e}_{i}w_{i}}{1-h_{ii}}
+$$
+
+Donde $\boldsymbol{A} =\boldsymbol{X}^{t}\boldsymbol{WX}$ $\hat{\boldsymbol{\beta}}_{(i)}$ es el vector de parámetros estimados una vez se ha eliminado la
+i-ésima observación, $h_{ii}$ es el correspondiente elemento de la diagonal de *H* y $\hat{e}_i$ es el residual de la i-ésima observación.
+
+## $D_fBeta_{(i)}$ 
+
+Otra forma de reescribir este estadístico en términos de la matriz $H$ es:
+
+$$
+D_fBetas_{\left(i\right)}=\frac{{c_{ji}e_{i}}\big/{\left(1-h_{ii}\right)}}{\sqrt{v\left(\hat{\boldsymbol{\beta}}_{j}\right)}}
+$$
+
+donde: 
+
+  - $c_{ji}=$ es el ji-estimo elemento de $\boldsymbol{A}^{-1}w_{i}^{2}\boldsymbol{X}_{\left(i\right)}\boldsymbol{X}_{\left(i\right)}^{t}\boldsymbol{A}^{-1}$
+
+ - El estimador de $v\left(\hat{B}_{j}\right)$ basado en el Modelo se obtiene como: $v_{m}\left(\hat{B}_{j}\right)=\hat{\sigma}\sum_{i=1}^{n}c_{ji}^{2}$ con $\hat{\sigma}=\sum_{i\in s}w_{i}e^2/ \left( \hat{N} - p \right)$ y $\hat{N} = \sum_{i \in s}w_{i}$
+
+  - La i-ésima observación es influyente para $B_j$ si $\mid D_{f}Betas_{\left(i\right)j}\mid\geq\frac{z}{\sqrt{n}}$ con $z=$ 2 o 3
+
+  - Como alternativa puede usar $t_{0.025,n-p}/\sqrt(n)$ donde $t_{0.025,n-p}$ es el percentil $97.5$
+
+
+## Estadístico $D_{f}Fits_{\left(i\right)}$ 
+
+Este estadístico mide el cambio en el ajuste del modelo cuando se elimina el registro i-ésimo. Se calcula de la siguiente manera:
+
+$$
+D_{f}Fits_{\left(i\right)}= \frac{h_{ii}e_{i}\big/\left(1-h_{ii}\right)}{\sqrt{v\left(\hat{\beta}_{j}\right)}}
+$$
+
+Donde, $\sqrt{v\left(\hat{\beta}_{j}\right)}$ puede ser aproximada por el diseño o el Modelo. La i-ésima observación se considera influyente en el ajuste del Modelo si
+$\mid DfFits\left(i\right)\mid\geq z\sqrt{\frac{p}{n}}$ con $z =$ 2 o 3
+
+
+
+## Practica en `R`
+
+```{r, eval=FALSE, echo=FALSE}
+# Crear archivo PNG
+png("Imagenes/04_Regresion/05_Fig_residuales_Regresion.png", width = 1000, height = 1000, res = 150)
+par(mfrow = c(2, 2))
+plot(mod_svy)
+dev.off()
+
+```
+
+![Analisis de residuales ](Imagenes/04_Regresion/05_Fig_residuales_Regresion.png){width="350"}
+
+Como se puedo observar en el QQplot, hay evidencia gráfica de que los errores no se distribuyen según una distribución normal.
+
+
+## Pruebas de normalidad
+
+- $H_0$: Los errores proviene de una distribución normal.
+
+- $H_1$: Los errores no proviene de una distribución normal.
+
+Ahora, la librería `svydiags` esta pensada ayudar en el diagnostico de modelos de regresión lineal, siendo una extensión más para complementar el paquete `survey`. 
+
+Con las librería svydiags se extraen los residuales estandarizados así: 
+
+```{r, echo = TRUE, eval=TRUE}
+library(svydiags)
+stdresids = as.numeric(svystdres(mod_svy)$stdresids)
+diseno_qwgt$variables %<>% 
+  mutate(stdresids = stdresids)
+```
+
+
+## Histograma de los residuales
+
+El primer análisis de normalidad se hace por medio del histograma. 
+```{r, hist1, echo = TRUE, eval = FALSE}
+p1_hist <- ggplot(data = diseno_qwgt$variables,
+                  aes(x = stdresids)) +
+  geom_histogram(
+    aes(y = ..density..),
+    colour = "black",
+    bins = 30,
+    fill = "blue",
+    alpha = 0.3
+  ) + geom_density(linewidth = 2, colour = "blue") +
+  geom_function(fun = dnorm, colour = "red",
+                linewidth = 2) +
+  theme_cepal() + labs(y = "")
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p1_hist, filename =  "Imagenes/04_Regresion/06_Fig_hist_residuales_Regresion.png")
+```
+
+
+## Histograma de los residuales
+
+![Histogrma de los residuales stdresids  ](Imagenes/04_Regresion/06_Fig_hist_residuales_Regresion.png){width="300"}
+
+
+## Varianza constante
+Agregando las predicciones a la base de datos. 
+```{r, echo=TRUE, eval=TRUE,size="tiny"}
+library(patchwork)
+diseno_qwgt$variables %<>% 
+  mutate(pred = predict(mod_svy))
+g2 <- ggplot(data = diseno_qwgt$variables,
+       aes(x = log(GASTO_CORRIENTE_HOGAR + 
+    500), y = stdresids))+
+  geom_point() +
+  geom_hline(yintercept = 0) + theme_cepal()
+g3 <- ggplot(data = diseno_qwgt$variables,
+       aes(x = TIENEVEHICULOS , y = stdresids))+
+  geom_point() +
+  geom_hline(yintercept = 0) + theme_cepal()
+```
+
+## Varianza constante
+
+```{r, plot6, echo=TRUE, eval=FALSE,size="tiny"}
+g4 <- ggplot(data = diseno_qwgt$variables,
+       aes(x = Area, y = stdresids))+
+  geom_point() +
+  geom_hline(yintercept = 0) + theme_cepal()
+
+g6 <- (g4|g3)/(g2)
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = g6, filename =  "Imagenes/04_Regresion/07_Fig_Var_cosntante_Regresion.png")
+```
+
+## Varianza constante
+
+![Varianza constante](Imagenes/04_Regresion/07_Fig_Var_cosntante_Regresion.png){width="300"}
+
+
+## Detección de observaciones influyentes (Distancia de cook)
+
+La función `svyCooksD` pertenece a la librería `svydiags` permite tener el calculo de la Distancia de cook para el modelo ajustado. 
+
+```{r, dcook, eval=FALSE}
+
+ d_cook = data.frame(
+   cook = svyCooksD(mod_svy), 
+     id = 1:length(svyCooksD(mod_svy)))
+
+g_dcook<- ggplot(d_cook, aes(y = cook, x = id)) +
+  geom_point() + 
+  theme_bw(20)
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = g_dcook, filename =  "Imagenes/04_Regresion/08_Fig_Distancia_cook_Regresion.png")
+```
+
+
+## Detección de observaciones influyentes (Distancia de cook)
+
+Como se puede observar, ninguna de las distancias de Cook’s es mayor a 3 por lo que, podemos decir que no existen observaciones influyentes.
+
+![Distancia de cook](Imagenes/04_Regresion/08_Fig_Distancia_cook_Regresion.png){width="250"}
+
+## Detección de observaciones influyentes ($D_{f}Betas_{\left(i\right)j}$)
+
+ se desea observar si hay observaciones influyentes pero utilizando  $D_{f}Betas_{\left(i\right)j}$ se realiza con la función `svydfbetas` como se muestra a continuación:
+  
+```{r}
+d_dfbetas = data.frame(t(svydfbetas(mod_svy)$Dfbetas))
+colnames(d_dfbetas) <- paste0("Beta_", 1:4)
+d_dfbetas %>% slice(1:5L)
+```
+
+## Detección de observaciones influyentes ($D_{f}Betas_{\left(i\right)j}$)
+
+```{r eval=TRUE, echo=TRUE}
+d_dfbetas$id <- 1:nrow(d_dfbetas)
+d_dfbetas <- reshape2::melt(d_dfbetas, 
+                            id.vars = "id")
+cutoff <- svydfbetas(mod_svy)$cutoff
+d_dfbetas %<>%
+  mutate(
+    Criterio = ifelse(
+      abs(value) > cutoff, "Si", "No"))
+
+tex_label <- d_dfbetas %>% 
+  filter(Criterio == "Si") %>%
+  arrange(desc(abs(value))) %>%
+  slice(1:10L)
+```
+
+## Detección de observaciones influyentes ($D_{f}Betas_{\left(i\right)j}$)
+
+```{r eval=FALSE, plot_dfbetas, echo=TRUE}
+Fig_DFbetas <- ggplot(d_dfbetas, aes(y = abs(value), x = id)) +
+  geom_point(aes(col = Criterio)) +
+  geom_text(data = tex_label,
+            angle = 45,
+            vjust = -1,
+            aes(label = id)) +
+  geom_hline(aes(yintercept = cutoff)) +
+  facet_wrap(. ~ variable, nrow = 2) +
+  scale_color_manual(
+    values = c("Si" = "red", "No" = "black")) +
+  theme_cepal()
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = Fig_DFbetas, filename =  "Imagenes/04_Regresion/09_Fig_DFbetas_Regresion.png")
+```
+
+
+## Detección de observaciones influyentes ($D_{f}Betas_{\left(i\right)j}$)
+
+![Detección de observaciones influyentes $D_{f}Betas_{\left(i\right)j}$](Imagenes/04_Regresion/09_Fig_DFbetas_Regresion.png){width="400"}
+
+## Detección de observaciones influyentes ($D_{f}Fits_{\left(i\right)}$)
+
+```{r,plot_dffit, echo=TRUE, eval=FALSE}
+d_dffits = data.frame(
+  dffits = svydffits(mod_svy)$Dffits, 
+  id = 1:length(svydffits(mod_svy)$Dffits))
+
+cutoff <- svydffits(mod_svy)$cutoff
+
+d_dffits %<>% mutate(
+    C_cutoff = ifelse(abs(dffits) > cutoff, "Si", "No"))
+
+g_dffits <- ggplot(d_dffits, aes(y = abs(dffits), x = id)) +
+  geom_point(aes(col = C_cutoff)) + 
+  geom_hline(yintercept = cutoff) + 
+   scale_color_manual(
+    values = c("Si" = "red", "No" = "black"))+
+  theme_cepal()
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = g_dffits, filename =  "Imagenes/04_Regresion/10_Fig_DFfit_Regresion.png")
+```
+
+
+## Detección de observaciones influyentes ($D_{f}Fits_{\left(i\right)}$)
+
+![Detección de observaciones influyentes $D_{f}Fits_{\left(i\right)}$](Imagenes/04_Regresion/10_Fig_DFfit_Regresion.png){width="400"}
+
+## Matriz *H* 
+  - La matriz asociada al Estimador de Pseudo Máxima Verosimilitud (PMLE) de $\hat{\boldsymbol{B}}$ es $\boldsymbol{H}=\boldsymbol{XA}^{-1}\boldsymbol{X}^{-t}\boldsymbol{W}$ cuya diagonal esta dado por $h_{ii} = \boldsymbol{x_{i}^tA}^{-1}\boldsymbol{x_{i}}^{-t}w_{i}$.
+
+  - Una observación puede ser grande y, como resultado, influir en las predicciones, cuando un $x_i$ es considerablemente diferente del promedio ponderado $\bar{x}_w=\sum_{i\in s}w_{i}\boldsymbol{x_{i}}\big/\sum_{i\in s}w_i$.
+
+
+
+## Detección de observaciones influyentes ($h_{ii}$)
+
+```{r, hat, eval=FALSE, echo=TRUE}
+vec_hat <- svyhat(mod_svy, doplot = FALSE)
+d_hat = data.frame(hat = vec_hat, 
+                    id = 1:length(vec_hat))
+d_hat %<>% mutate(
+  C_cutoff = ifelse(hat > (3 * mean(hat)),
+                    "Si", "No"))
+
+g_hat <- ggplot(d_hat, aes(y = hat, x = id)) +
+  geom_point(aes(col = C_cutoff)) + 
+  geom_hline(yintercept = (3 * mean(d_hat$hat))) +
+  scale_color_manual(
+    values = c("Si" = "red", "No" = "black"))+
+  theme_cepal()
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = g_hat, filename =  "Imagenes/04_Regresion/11_Fig_hat_Regresion.png")
+```
+
+
+## Detección de observaciones influyentes ($h_{ii}$)
+Se puede observar en el gráfico anterior que hay varias observaciones posiblemente influyentes en el conjunto de datos de la muestra de hogares.
+
+![Detección de observaciones influyentes $h_{ii}$](Imagenes/04_Regresion/11_Fig_hat_Regresion.png){width="300"}
+
+# Inferencia sobre los parámetros del Modelo
+
+## Inferencia sobre $\beta_k$
+
+- Inferencia sobre los parámetros del modelo es fundamental para evaluar la significancia de los parámetros estimados.
+
+- Utilizamos un estadístico de prueba basado en la distribución "t-student" para evaluar la significancia de los parámetros $\beta_k$.
+
+
+$$
+t=\frac{\hat{\beta}_{k}-\beta_{k}}{se\left(\hat{\beta}_{k}\right)}\sim t_{n-p}
+$$
+Donde $p$ es el número de parámetros del modelo y $n$ el tamaño de la muestra de la encuesta.
+
+- El estadístico de prueba compara la hipótesis nula $H_0: \beta_k = 0$ con la alternativa $H_1: \beta_k \neq 0$.
+
+# Inferencia sobre los parámetros del Modelo
+
+## Inferencia sobre $\beta_k$
+
+- Inferencia sobre los parámetros del modelo es fundamental para evaluar la significancia de los parámetros estimados.
+
+- Utilizamos un estadístico de prueba basado en la distribución "t-student" para evaluar la significancia de los parámetros $\beta_k$.
+
+
+$$
+t=\frac{\hat{\beta}_{k}-\beta_{k}}{se\left(\hat{\beta}_{k}\right)}\sim t_{n-p}
+$$
+Donde $p$ es el número de parámetros del modelo y $n$ el tamaño de la muestra de la encuesta.
+
+- El estadístico de prueba compara la hipótesis nula $H_0: \beta_k = 0$ con la alternativa $H_1: \beta_k \neq 0$.
+
+## Intervalo de confianza para $\beta_k$
+
+- Podemos construir un intervalo de confianza al $(1-\alpha)\times100\%$ para $\beta_k$ usando el estadístico de prueba.
+
+
+$$
+\hat{\beta}_{k}\pm t_{1-\frac{\alpha}{2},\,df}\,se\left(\hat{\beta}_{k}\right)
+$$
+
+- Los grados de libertad ($df$) en una encuesta de hogares (muestras complejas) se calculan como el número de conglomerados finales de la primera etapa menos el número de estratos de la etapa primaria ($df = \sum_{h}a_h - H$).
+
+- Las funciones `summary.svyglm` para las pruebas t y `confint.svyglm` para los intervalos de confianza
+
+## Inferencia sobre $\beta_k$
+El uso de `broom::tidy()` permite organizar la salida en la siguiente tabla 
+```{r}
+mod_svy %>% broom::tidy()
+```
+
+## Intervalo de confianza para $\beta_k$
+
+Se puede observar que, con una confianza del 95\% el único parámetro significativo del modelo es Expenditure y ese mismo resultado lo reflejan los intervalos de confianza.
+
+```{r}
+survey:::confint.svyglm(mod_svy)
+```
+
+## Estimación de una observación
+
+- Los modelos de regresión lineal se utilizan para dos propósitos principales: explicar la variable respuesta en función de las covariables y predecir valores de la variable de interés.
+
+- Para realizar predicciones, utilizamos la fórmula
+$$\hat{E}(y_i | \boldsymbol{x}_{obs,i}) = \boldsymbol{x}_{obs,i} \hat{\boldsymbol{\beta}}$$, 
+
+donde $\boldsymbol{x}_{obs,i}$ representa las covariables de una observación no incluida en la muestra.
+
+- La varianza de la estimación se calcula como $$var(\hat{E}(y_i | x_{obs,i})) = x'_{obs,i}cov(\hat{\boldsymbol{\beta}})x{}_{obs,i}$$.
+
+## Estimación de una observación
+
+\tiny
+
+```{r, echo=FALSE}
+ model.matrix(mod_svy) %>%
+  as.data.frame()%>% slice(1:7)
+```
+
+\scriptsize
+
+\begin{eqnarray*}
+\hat{E}(y_{i}\mid\boldsymbol{x}_{obs,i}) & = & 1.6840 + 0.8527x_{1i} -0.2417x_{2i} - 0.0951x_{3i}\\
+       &=& 1.6840 + 0.8527(9.836) + -0.2417(1) - 0.0951(1) \\
+       &=&  9.734
+\end{eqnarray*}
+
+## Estimando el IC de predicción
+
+Para calcular la varianza de la estimación, primero se deben obtener las varianzas de la estimación de los parámetros: 
+
+\tiny
+
+```{r}
+vcov(mod_svy)
+```
+
+
+## Estimando el IC de predicción
+
+Ahora bien, se procede a realizar los cálculos como lo indica la expresión mostrada anteriormente:
+
+```{r, echo=TRUE}
+xobs <- model.matrix(mod_svy) %>%
+        data.frame() %>% slice(1) %>% as.matrix()
+
+cov_beta <- vcov(mod_svy) %>% as.matrix()
+
+as.numeric(xobs %*% cov_beta %*% t(xobs))
+```
+
+## Intervalo de confianza para la predicción
+
+Si el objetivo ahora es calcular el intervalo de confianza para la predicción se utiliza la siguiente ecuación:
+
+$$
+\boldsymbol{x}_{obs,i}\hat{\beta}\pm t_{\left(1-\frac{\alpha}{2},n-p\right)}\sqrt{var\left(\hat{E}\left(y_{i}\mid\boldsymbol{x}_{obs,i}\right)\right)}
+$$
+
+
+Para realizar los cálculos en R, se utiliza la función `confint` y `predict` como sigue:
+
+```{r,pred01, echo=TRUE,eval=TRUE}
+pred <- data.frame(predict(mod_svy, type = "response"))
+pred_IC <- data.frame(confint(predict(mod_svy, type = "response")))
+colnames(pred_IC) <- c("Lim_Inf", "Lim_Sup")
+pred <- bind_cols(pred, pred_IC)
+```
+
+
+## Intervalo de confianza para la predicción
+
+```{r}
+pred %>% slice(1:10)
+```
+
+## Intervalo de confianza para la predicción
+
+Ahora, de manera gráfica las predicciones e intervalos se vería de la siguiente manera:
+
+```{r, plot_pred, echo=TRUE,eval=FALSE}
+pred$log_ingreso_hog <- log(encuesta$ingreso_hog + 500)
+pd <- position_dodge(width = 0.2)
+pred_mod <-  ggplot(pred %>% slice(1:100L),
+       aes(x = exp(log_ingreso_hog) - 500 , y = exp(response) - 500 )) +
+  geom_errorbar(aes(ymin = exp(Lim_Inf) - 500,
+                    ymax = exp(Lim_Sup) -500 ),
+                width = .1,
+                linetype = 1) +
+  geom_point(size = 1, position = pd) +
+  theme_bw()
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = pred_mod, filename =  "Imagenes/04_Regresion/12_Fig_IC_pred_Regresion.png")
+```
+
+
+## Intervalo de confianza para la predicción
+
+![Intervalo de confianza para la predicción](Imagenes/04_Regresion/12_Fig_IC_pred_Regresion.png){width="400"}
+
+
+## Predicción fuera  fuera del rango de valores.
+
+Por último, si el interés es hacer una predicción fuera del rango de valores que fue capturado en la muestra. Para esto, supongamos que se desea predecir:
+
+```{r}
+datos_nuevos <- data.frame(GASTO_CORRIENTE_HOGAR  = 500, 
+                           TIENEVEHICULOS = "2. No",
+                           Area = "2. Rural" )
+```
+
+La varianza para la predicción se hace siguiendo la siguiente ecuación:
+
+$$
+var\left(\hat{E}\left(y_{i}\mid\boldsymbol{x}_{obs,i}\right)\right)=\boldsymbol{x}_{obs,i}^{t}cov\left(\boldsymbol{\beta}\right)\boldsymbol{x}_{obs,i} + \hat{\sigma}^2_{yx}
+$$
+
+## Predicción fuera  fuera del rango de valores.
+
+Se construye la matriz de observaciones y se calcula la varianza como sigue:
+
+```{r}
+x_noObs = matrix(c(1,log(500+500) ,1,1),nrow = 1)
+as.numeric(sqrt(x_noObs%*%cov_beta%*%t(x_noObs)))
+```
+
+Por último, el intervalo de confianza sigue la siguiente ecuación:
+
+$$
+\boldsymbol{x}_{obs,i}\hat{\beta}\pm t_{\left(1-\frac{\alpha}{2},n-p\right)}\sqrt{var\left(\hat{E}\left(y_{i}\mid\boldsymbol{x}_{obs,i}\right)\right)+\hat{\sigma}_{yx}^{2}}
+$$
+
+## Predicción fuera  fuera del rango de valores.
+
+En `R` se hace la predicción de la siguiente manera:
+
+```{r}
+predict(mod_svy, newdata = datos_nuevos, type =  "link") %>% 
+  data.frame()
+```
+
+y el intervalo:
+```{r}
+confint(predict(mod_svy, newdata = datos_nuevos))
+```
 
 
 
