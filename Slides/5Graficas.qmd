@@ -1,0 +1,1296 @@
+---
+title: "Análisis de encuestas de hogares con R"
+subtitle: "Módulo 5: Análisis gráfico en R"
+author: |
+  | Andrés Gutiérrez.
+  | Stalyn Guerrero 
+institute: "CEPAL - Unidad de Estadísticas Sociales"
+format: 
+  beamer: 
+    colortheme: dove
+    fonttheme: default
+    incremental: false
+    aspectratio: 1610
+    #theme: Berkeley
+    toc: true
+    slide_level: 2
+    #highlight: pygments
+Email: andres.gutierrez@cepal.org
+lang: es
+editor_options:
+  markdown:
+    wrap: 90
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = FALSE, warning = FALSE, message = FALSE,echo = TRUE,
+                      error = FALSE, cache.path = "00_Caches/05_Plots/")
+options(digits = 4)
+library(survey)
+library(srvyr)
+library(convey)
+library(TeachingSampling)
+library(printr)
+```
+
+# Graficas en `R`
+
+## Introducción 
+
+- Este apartado se centra en mostrar cómo crear gráficos generales en `R`, lo cual es esencial en el análisis de encuestas para visualizar tendencias y verificar supuestos en el ajuste de modelos estadísticos.
+
+- Se introduce el paquete ggplot2, una herramienta poderosa y flexible para la creación de gráficos elegantes en `R`. Fue desarrollado por Hadley Wickham y se basa en el concepto de "Grammar of Graphics."
+
+- La carga inicial de librerías y bases de datos es un paso común antes de comenzar cualquier análisis gráfico en R.
+
+## Lectura de la base
+
+```{r}
+encuesta <- readRDS("Imagenes/02_variable_continua/ENIGH_HND_Hogar.rds")
+
+encuesta <- encuesta %>% # Base de datos.
+  mutate(estrato = haven::as_factor(F1_A0_ESTRATO),
+         TIPOVIVIENDA = haven::as_factor(F1_A1_P1_TIPOVIVIENDA),
+         Area = haven::as_factor(F1_A0_AREA), 
+        TIENEVEHICULOS = haven::as_factor(F2_A2_P1_TIENEVEHICULOS))
+
+```
+
+
+**Definir diseño de la muestra con `srvyr`**
+
+Definiendo el diseño muestral, esto se hace de forma análoga a la anterior. 
+
+
+```{r}
+diseno <-  encuesta %>% as_survey_design(
+    strata = estrato,  # Id de los estratos.
+    ids = F1_A0_UPM,         # Id para las observaciones.
+    weights = Factor,      # Factores de expansión. 
+    nest = TRUE           # Valida el anidado dentro del estrato
+  )
+
+
+```
+
+
+## Definir nuevas variables
+Creando nuevas variables, para ello se hace uso de la función `mutate`.
+
+```{r, tabs1, echo=TRUE, eval=TRUE}
+diseno <- diseno %>% mutate(
+  ingreso_per  = ifelse(YDISPONIBLE_PER < 0 , 0 , YDISPONIBLE_PER) ,
+  pobreza_LP = case_when(
+    ingreso_per < 3046 & Area == "1. Urbana" ~ 1,
+    ingreso_per < 1688  &
+      Area == "1. Rural" ~ 1,
+    TRUE ~ 0
+  ),
+  pobreza_LI = case_when(
+    ingreso_per < 1955 & Area == "1. Urbana" ~ 1,
+    ingreso_per < 1110  &
+      Area == "1. Rural" ~ 1,
+    TRUE ~ 0
+  ),
+  ingreso_hog = ingreso_per * CANTIDAD_PERSONAS,
+   log_ingreso_per = log(ingreso_per  + 500),
+   log_ingreso_hog = log(ingreso_hog  + 500),
+   log_gasto = log(GASTO_CORRIENTE_HOGAR  + 500),
+)
+
+```
+
+## Aplicación en encuestas de hogares 
+\tiny
+```{r, echo=FALSE}
+diseno$variable %>% # Base de datos.
+  dplyr::select(CANTIDAD_PERSONAS, 
+         log_gasto, 
+         pobreza_LI,
+         pobreza_LP,
+         ingreso_per, 
+         ingreso_hog) %>% arrange(-ingreso_hog) %>% head(20)
+```
+\normalsize
+
+**Sub-grupos**
+
+Dividiendo la muestra en sub grupos. 
+
+```{r}
+sub_Urbano <- diseno %>%  filter(Area == "1. Urbana") # 
+sub_Rural  <- diseno %>%  filter(Area == "2. Rural") # 
+```
+
+## Creando tema para las gráficas 
+Para tener un estilo estándar las gráficas se define el siguiente tema. 
+
+```{r}
+theme_cepal <- function(...) {
+  theme_light(10) +
+    theme(
+      axis.text.x = element_blank(),
+      axis.ticks.x = element_blank(),
+      axis.text.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      legend.position = "bottom",
+      legend.justification = "left",
+      legend.direction = "horizontal",
+      plot.title = element_text(size = 20, hjust = 0.5),
+      ...
+    )
+}
+```
+
+
+# Gráficas de variables continuas. 
+
+## Histogramas para graficar variables continuas.
+
+- Un histograma es una representación gráfica de los datos de una variable que utiliza barras, donde la altura de las barras representa la frecuencia de los valores y el ancho de las barras corresponde a la amplitud de los intervalos de clase.
+
+- Los pasos para realizar el histograma incluyen definir la fuente de información, especificar la variable a graficar (x) y los pesos de muestreo (weight). Luego, se elige el tipo de gráfico, en este caso, un histograma (geom_histogram). Además, se configuran los títulos deseados para el histograma y se aplica el tema de la CEPAL para mejorar su presentación.
+
+
+## Histogramas 
+
+Las gráficas son realizadas principalmente con la librería `ggplot2`y nos apoyamos en la librería `patchwork` para organizar la visual de las gráficas. 
+
+```{r, hist1, echo = TRUE, eval=FALSE}
+library(ggplot2)
+library(patchwork)
+plot1_Ponde <- ggplot(
+  data = diseno$variables,              # Fuente de datos.
+  aes(x = log_ingreso_hog,
+      weight = Factor)  # Parámetros gráficos general. 
+) +
+  geom_histogram(               # Parámetro geométrico.
+    aes(y = ..density..)) +     # Parámetros del gráfico    
+  ylab("") +                    # Nombre para el eje Y
+  ggtitle("Ponderado") +        # Titulo. 
+  theme_cepal()                 # Aplicando tema
+```
+
+
+## Histogramas 
+De forma análoga se define el gráfico siguiente, note que en este caso se omitió el parámetro `weight`.  
+```{r, hist1a, echo = TRUE, eval=FALSE}
+plot1_SinPonde <-
+  ggplot( data = diseno$variables,
+  aes(x = log_ingreso_hog)) +
+  geom_histogram(aes(y = ..density..)) +
+  ylab("") +
+  ggtitle("Sin ponderar") +
+  theme_cepal()
+# Organizando la salida gráfica
+plot1 <-  plot1_Ponde | plot1_SinPonde
+plot1
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot1,filename =  "Imagenes/05_Plots/01_Fig_Histograma1.png")
+```
+
+## Histograma 
+![Histograma base para *log ingreso en eñ hogar*](Imagenes/05_Plots/01_Fig_Histograma1.png){width="300"}
+
+
+
+
+## Histogramas 
+Ahora, repetimos la secuencia de gráficos para la variable *log_gasto*
+
+```{r, hist2, echo = TRUE, eval=FALSE}
+plot2_Ponde <- ggplot(
+  data =  diseno$variables,
+  aes(x = log_gasto  , weight = Factor)
+) +
+  geom_histogram(aes(y = ..density..)) +
+  ylab("") +
+  ggtitle("Ponderado") +
+  theme_cepal()
+```
+
+
+## Histogramas 
+
+```{r, hist2a, echo = TRUE, eval=FALSE}
+plot2_SinPonde <- ggplot(data = diseno$variables,
+      aes(x = log_gasto )) +
+      geom_histogram(aes(y = ..density..)) +
+      ylab("") +
+      ggtitle("Sin ponderar") +
+      theme_cepal()
+
+plot2 <-  plot2_Ponde | plot2_SinPonde
+
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot2,filename =  "Imagenes/05_Plots/02_Fig_Histograma2.png")
+```
+
+
+
+## Histogramas
+![Histograma base para *log gasto corriente en el hogar*](Imagenes/05_Plots/02_Fig_Histograma2.png){width="300"}
+
+
+## Histogramas por sub-grupos
+
+Cuando el interés es realizar comparaciones entre dos o más agrupaciones, es posible hacer uso del parámetro `fill`, el cual "rellena" las barras del histograma con diferentes colores según sea el grupo.   
+
+
+```{r, hist3, echo = TRUE, eval=FALSE}
+plot3_Ponde <- ggplot(
+  diseno$variables,
+  aes(x = log_ingreso_hog , weight = Factor)
+) +
+  geom_histogram(
+    aes(y = ..density.., fill = Area),
+    alpha = 0.5,
+    position = "identity" # Para que las barras no estén apiladas.
+  ) +
+  ylab("") +
+  ggtitle("Ponderado") +
+  theme_cepal()
+```
+
+## Histogramas por sub-grupos
+La sintaxis es homologa a la anterior, sin embargo, se retiro el parámetro `weight`.
+```{r, hist3a, echo = TRUE, eval=FALSE}
+plot3_SinPonde <- 
+  ggplot(diseno$variables, aes(x = log_ingreso_hog )) +
+  geom_histogram(aes(y = ..density.., fill = Area),
+    alpha = 0.5, position = "identity"
+  ) +
+  ggtitle("Sin ponderar") +
+  theme_cepal() +
+  ylab("")
+plot3 <-  plot3_Ponde | plot3_SinPonde
+```
+
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot3,filename =  "Imagenes/05_Plots/03_Fig_Histograma3.png")
+```
+
+## Histogramas por sub-grupos
+
+![Histograma para *log. del ingreso del  hogar*](Imagenes/05_Plots/03_Fig_Histograma3.png){width="300"}
+
+## Histogramas por sub-grupos
+
+Ahora, repetimos la secuencia de gráficos para la variable *log_gasto*
+
+```{r, hist4, echo = TRUE, eval=FALSE}
+plot4_Ponde <- ggplot(
+  diseno$variables,
+  aes(x = log_gasto, weight = Factor)
+) +
+  geom_histogram(aes(y = ..density.., fill = Area),
+    alpha = 0.5, position = "identity"
+  ) +
+  ylab("") +
+  ggtitle("Ponderado") +
+  theme_cepal()
+```
+
+## Histogramas por sub-grupos
+```{r, hist4a, echo = TRUE, eval=FALSE}
+plot4_SinPonde <- ggplot(
+    diseno$variables,
+  aes(x = log_gasto)
+) +
+  geom_histogram(aes(y = ..density.., fill = Area),
+    alpha = 0.5, position = "identity"
+  ) +
+  ggtitle("Sin ponderar") +
+  theme_cepal() +
+    ylab("")
+plot4 <-  plot4_Ponde | plot4_SinPonde
+```
+
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot4,filename =  "Imagenes/05_Plots/04_Fig_Histograma4.png")
+```
+
+
+## Histogramas por sub-grupos
+![Histograma para *log_gasto*](Imagenes/05_Plots/04_Fig_Histograma4.png){width="300"}
+
+## Histogramas por sub-grupos
+Ahora, repetimos la secuencia de gráficos para la variable *log ingreo_hog*, pero haremos el relleno por la variable *tiene vehículo*. 
+
+```{r, hist5, echo = TRUE, eval=FALSE}
+plot5_Ponde <-
+  ggplot(diseno$variables,
+         aes(x = log_ingreso_hog, weight = Factor)) +
+  geom_histogram(
+    aes(y = after_stat(density), fill = TIENEVEHICULOS),
+                 alpha = 0.5,
+                 position = "identity") +
+  ylab("") +
+  ggtitle("Ponderado") +
+  theme_cepal()
+```
+
+## Histogramas por sub-grupos
+```{r, hist5a, echo = TRUE, eval=FALSE}
+plot5_SinPonde <- ggplot(diseno$variables,
+         aes(x = log_ingreso_hog)) +
+  geom_histogram(
+    aes(y = after_stat(density), fill = TIENEVEHICULOS),
+                 alpha = 0.5,
+                 position = "identity") +
+  ggtitle("Sin ponderar") +
+  theme_cepal() +
+  ylab("")
+plot5 <-   plot5_Ponde | plot5_SinPonde
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot5,filename =  "Imagenes/05_Plots/05_Fig_Histograma5.png")
+```
+
+
+
+## Histogramas por sub-grupos
+
+![Histograma para *log ingreso del hogar*](Imagenes/05_Plots/05_Fig_Histograma5.png){width="300"}
+
+
+## Histogramas por sub-grupos
+Ahora, repetimos la secuencia de gráficos para la variable *log_gasto* y el relleno por la variable *TIENEVEHICULOS*. 
+
+```{r, hist6, echo = TRUE, eval=FALSE}
+plot6_Ponde <- ggplot(diseno$variables,
+                      aes(x = log_gasto, weight = Factor)) +
+  geom_histogram(
+    aes(y = after_stat(density), 
+        fill = TIENEVEHICULOS),
+        alpha = 0.5,
+        position = "identity") +
+  ylab("") +
+  ggtitle("Ponderado") +
+  theme_cepal()
+```
+
+## Histogramas por sub-grupos
+
+```{r, hist6a, echo = TRUE, eval=FALSE}
+plot6_SinPonde <- ggplot(diseno$variables,
+                      aes(x = log_gasto)) +
+  geom_histogram(
+    aes(y = after_stat(density), 
+        fill = TIENEVEHICULOS),
+        alpha = 0.5,
+        position = "identity") +
+  ylab("")  +
+  ggtitle("Sin ponderar") +
+  theme_cepal() +
+  ylab("")
+plot6 <-  plot6_Ponde | plot6_SinPonde
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot6,filename =  "Imagenes/05_Plots/06_Fig_Histograma6.png")
+```
+
+
+
+## Histogramas por sub-grupos
+
+![Histograma para *log_gasto*](Imagenes/05_Plots/06_Fig_Histograma6.png){width="300"}
+
+
+## Agregando densidad
+
+Dadas las cualidades de la librería ggplot2, podemos agregar nuevas capas a la gráfica. Por ejemplo, la densidad con la función `geom_density` e incorporamos el parámetro `alpha` que regula la transparencia del relleno. 
+
+```{r, out.width="60%", fig.align="center", eval=FALSE}
+plot1_desy <- plot1_Ponde + geom_density(fill = "#ADD8E6", alpha = 0.3)  |
+  plot2_Ponde + geom_density(fill = "#ADD8E6", alpha = 0.3)
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot1_desy,filename =  "Imagenes/05_Plots/07_Fig_Desnidad1.png")
+```
+
+![Desnsidad agregada al histograma](Imagenes/05_Plots/07_Fig_Desnidad1.png){width="200"}
+
+
+## Agregando densidad
+
+Al hacer `aes(fill = Area)` permite que la densidad sea agregada para cada una de las agrupaciones.
+
+```{r,eval = FALSE, out.width="60%", fig.align="center"}
+plot3_densy <- plot3_Ponde + geom_density(aes(fill = Area), alpha = 0.3) |
+  plot4_Ponde + geom_density(aes(fill = Area), alpha = 0.3)
+```
+
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot3_densy, filename =  "Imagenes/05_Plots/08_Fig_Desnidad2.png")
+```
+
+![Desnsidad para agregada al histograma por área](Imagenes/05_Plots/08_Fig_Desnidad2.png){width="200"}
+
+
+## Agregando densidad
+En está oportunidad se agrega la densidad por sexo
+
+```{r,eval=FALSE,out.width="60%", fig.align="center"}
+plot5_densy <- plot5_Ponde +
+  geom_density(aes(fill = TIENEVEHICULOS),
+               alpha = 0.3) |
+  plot6_Ponde + geom_density(aes(fill = TIENEVEHICULOS),
+                             alpha = 0.3)
+```
+
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot5_densy, filename =  "Imagenes/05_Plots/09_Fig_Desnidad3.png")
+```
+
+
+![Desnsidad agregada al histograma por tiene vehículo](Imagenes/05_Plots/09_Fig_Desnidad3.png){width="200"}
+
+
+## Boxplot
+
+- El boxplot es un gráfico ampliamente utilizado en estadísticas que fue presentado por John Tukey en 1977. Proporciona una representación resumida de un conjunto de datos utilizando cinco números clave.
+
+- El boxplot consiste en un rectángulo llamado "caja" y dos segmentos llamados "bigotes". Este gráfico muestra información sobre la relación entre los cuartiles (Q1, Q2 o mediana y Q3) y los valores mínimo y máximo del conjunto de datos, la presencia de valores atípicos y la simetría de la distribución.
+
+- Para crear boxplots en R utilizando ggplot2, se emplea la función `geom_boxplot`.
+
+
+## Boxplot 
+
+Otro gráfico que podemos hacer son los diagrames de caja, para esto deben emplear la función `geom_boxplot`.
+
+```{r, hist7, echo = TRUE, eval = FALSE}
+plot7_Ponde <- ggplot(  diseno$variables, 
+                        aes(x = log_ingreso_hog,
+                            weight = Factor)) +
+  geom_boxplot() +  ggtitle("Ponderado") +
+  coord_flip() +   theme_cepal()
+
+plot8_Ponde <- ggplot( diseno$variables,
+  aes(x = log_gasto, weight = Factor)
+) + geom_boxplot() + ggtitle("Ponderado") + coord_flip() +
+  theme_cepal()
+
+plot_78 <- plot7_Ponde | plot8_Ponde
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot_78, filename =  "Imagenes/05_Plots/10_Fig_BoxPlot.png")
+```
+
+
+## Boxplot 
+![Boxplot para el log ingreso y log gasto](Imagenes/05_Plots/10_Fig_BoxPlot.png){width="300"}
+
+
+
+## Boxplot 
+Esto diagramas también permiten la comparación  entre dos o más niveles de agrupamiento.  
+
+```{r, hist8, echo = TRUE, eval=FALSE}
+plot9_Ponde <- ggplot(diseno$variables, 
+                      aes(x = log_ingreso_hog,
+                          weight = Factor)) +
+  geom_boxplot(aes(fill = Area)) +  ggtitle("Ponderado") +
+  coord_flip() +   theme_cepal()
+
+plot10_Ponde <- ggplot( diseno$variables,
+  aes(x = log_gasto, weight = Factor) ) +
+  geom_boxplot(aes(fill = Area)) + ggtitle("Ponderado") +
+  coord_flip() +  theme_cepal()
+
+plot910_Ponde <- plot9_Ponde|plot10_Ponde
+
+```
+
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot910_Ponde, filename =  "Imagenes/05_Plots/11_Fig_BoxPlot2.png")
+```
+
+
+## Boxplot 
+
+![Boxplot para el ingreso y gasto por área](Imagenes/05_Plots/11_Fig_BoxPlot2.png){width="300"}
+
+
+## Boxplot 
+Ahora, si desean personalizar los colores del relleno debe hacer uso de la función `scale_fill_manual`. 
+
+```{r, echo = TRUE, eval=FALSE, out.width="60%", fig.align="center"}
+colorArea <- c("1. Urbana" = "#48C9B0", "2. Rural" = "#117864")
+plot910_temp <- 
+  plot9_Ponde + scale_fill_manual(values = colorArea) |
+  plot10_Ponde + scale_fill_manual(values = colorArea)
+```
+
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot910_temp, filename =  "Imagenes/05_Plots/12_Fig_BoxPlot3.png")
+```
+
+
+
+![Boxplot para el ingreso y gasto por área](Imagenes/05_Plots/12_Fig_BoxPlot3.png){width="200"}
+
+## Boxplot 
+Comparando los ingresos y gastos por tenencia de vehículo 
+
+```{r, hist9, echo = TRUE, eval=FALSE}
+plot11_Ponde <- ggplot( diseno$variables,
+  aes(x = log_ingreso_hog , weight = Factor)
+) + geom_boxplot(aes(fill = TIENEVEHICULOS )) +
+  ggtitle("Ponderado") +   coord_flip() +
+  theme_cepal() 
+
+plot12_Ponde <- ggplot( diseno$variables,
+  aes(x = log_gasto, weight = Factor)
+) + geom_boxplot(aes(fill = TIENEVEHICULOS )) +
+  ggtitle("Ponderado") +  coord_flip() +
+  theme_cepal()
+
+plot11_temp <- plot11_Ponde|plot12_Ponde
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot11_temp, filename =  "Imagenes/05_Plots/13_Fig_BoxPlot4.png")
+```
+
+
+## Boxplot 
+
+![Boxplot para el ingreso y gasto por tenencia de vehículo](Imagenes/05_Plots/13_Fig_BoxPlot4.png){width="350"}
+
+## Boxplot 
+Definiendo el color del relleno para Sí y No tiene vehículo. 
+
+```{r, hist9a, echo = TRUE, eval=FALSE}
+colorVehiculo <- c("1. Sí" = "#5DADE2", "2. No" = "#2874A6")
+
+plot11_temp <- 
+plot11_Ponde + scale_fill_manual(values = colorVehiculo) |
+  plot12_Ponde + scale_fill_manual(values = colorVehiculo)
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot11_temp, filename =  "Imagenes/05_Plots/14_Fig_BoxPlot5.png")
+```
+
+## Boxplot 
+
+![Boxplot para el ingreso y gasto por tenencia de vehículo](Imagenes/05_Plots/14_Fig_BoxPlot5.png){width="350"}
+
+
+## Boxplot 
+Realizando la comparación para más de dos categorías. 
+
+```{r, hist10, echo = TRUE, eval=FALSE}
+plot13_Ponde <- ggplot( diseno$variables,
+  aes(x = log_ingreso_hog, weight = Factor)) +
+  geom_boxplot(aes(fill = TIPOVIVIENDA )) +
+  ggtitle("Ponderado") +   coord_flip() +
+  theme_cepal()
+
+plot14_Ponde <- ggplot( diseno$variables,
+  aes(x = log_gasto, weight = Factor)) +
+  geom_boxplot(aes(fill = TIPOVIVIENDA)) +
+  ggtitle("Ponderado") +   coord_flip() +
+  theme_cepal()
+
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot13_Ponde|plot14_Ponde, filename =  "Imagenes/05_Plots/15_Fig_BoxPlot6.png")
+```
+
+
+## Boxplot 
+
+![Boxplot para el ingreso y gasto por tipo de vivienda](Imagenes/05_Plots/15_Fig_BoxPlot6.png){width="350"}
+
+
+## Boxplot 
+Personalizando los coles cuando hay más de  dos categorías. 
+\scriptsize
+```{r, plot13_Ponde, echo = TRUE, eval=FALSE}
+colorvivienda <- c(
+  "1. Casa" = "#D6EAF8",
+  "2. Apartamento" = "#85C1E9",
+  "4. Local no construido para vivienda" = "#3498DB",
+  "3. Cuarto en mesón o cuartería" = "#2E86C1",
+  "5. Otro, especifique" = "#21618C"
+)
+pplot14_temp <-
+  plot13_Ponde + scale_fill_manual(values = colorvivienda) |
+  plot14_Ponde + scale_fill_manual(values = colorvivienda)
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = pplot14_temp, filename =  "Imagenes/05_Plots/16_Fig_BoxPlot7.png")
+```
+
+
+## Boxplot 
+
+![Boxplot para el ingreso y gasto por tipo de vivienda](Imagenes/05_Plots/16_Fig_BoxPlot7.png){width="300"}
+
+
+## Boxplot 
+La función `geom_boxplot`permite realizar comparaciones con más de dos variables al tiempo. A continuación se compara el logaritmo ingresos por tenencia de vehículo en las diferentes área.  
+
+```{r, hist11, echo = TRUE, eval=FALSE}
+plot15_Ponde <-
+  ggplot(
+    diseno$variables,
+    aes(x = log_ingreso_hog, y = Area, weight = Factor)
+  ) +
+  geom_boxplot(aes(fill = TIENEVEHICULOS)) +
+  ggtitle("Ponderado") +
+  scale_fill_manual(values = colorVehiculo) +
+  coord_flip()
+```
+
+## Boxplot 
+De forma análoga podemos realizar la comparación de los gastos por sexo en las diferentes zonas.  
+```{r, hist11a, echo = TRUE, eval = FALSE}
+plot16_Ponde <-
+  ggplot(
+   diseno$variables,
+    aes(x = log_gasto, y = Area, weight = Factor)
+  ) +
+  geom_boxplot(aes(fill = TIENEVEHICULOS )) +
+  ggtitle("Ponderado") +
+  scale_fill_manual(values = colorVehiculo) +
+  coord_flip()
+```
+
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot15_Ponde/plot16_Ponde, filename =  "Imagenes/05_Plots/17_Fig_BoxPlot8.png")
+```
+
+
+## Boxplot 
+![Boxplot para el logaritmo del ingreso y gasto ](Imagenes/05_Plots/17_Fig_BoxPlot8.png){width="300"}
+
+
+## Boxplot 
+Podemos extender las comparaciones variables que tienen más de dos categorías.  
+```{r, hist12, echo = TRUE, eval=FALSE}
+plot17_Ponde <-
+  ggplot(
+    diseno$variables,
+    aes(x = log_ingreso_hog , y = TIPOVIVIENDA, weight = Factor)
+  ) +
+  geom_boxplot(aes(fill = TIENEVEHICULOS )) +
+  ggtitle("Ponderado") +
+  scale_fill_manual(values = colorVehiculo) +
+  coord_flip()
+```
+
+## Boxplot 
+```{r, hist12a, echo = TRUE, eval = FALSE}
+plot18_Ponde <-
+  ggplot(
+     diseno$variables,
+    aes(
+      x = log_gasto,
+      y = TIPOVIVIENDA , weight = Factor
+    )
+  ) +
+  geom_boxplot(aes(fill = TIENEVEHICULOS )) +
+  ggtitle("Ponderado") +
+  scale_fill_manual(values = colorVehiculo) +
+  coord_flip()
+
+plot17_Ponde / plot18_Ponde
+```
+
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot17_Ponde/plot18_Ponde, filename =  "Imagenes/05_Plots/18_Fig_BoxPlot9.png")
+```
+
+
+## Boxplot 
+
+![Boxplot para el ingreso y gasto por tipo de vivienda y tiene vehículo](Imagenes/05_Plots/18_Fig_BoxPlot9.png){width="300"}
+
+
+# Scaterplot
+
+## Introducción 
+
+- Un diagrama de dispersión es una representación gráfica que muestra observaciones como puntos en un plano.
+
+- Cada punto en el diagrama de dispersión se posiciona de acuerdo a los valores de dos variables.
+
+- Los puntos pueden tener atributos como tamaño, color y forma, conocidos como estéticas.
+
+- En R, se utiliza `geom_point` para crear un diagrama de dispersión.
+
+- Es posible asignar estéticas a variables o establecer valores constantes para ellas en el gráfico.
+
+- Se pueden utilizar diagramas de dispersión para visualizar la relación entre dos variables, identificar patrones o tendencias, y explorar datos.
+
+## Scaterplot  
+
+ Para ejemplificar el uso de esta función, se graficarán las variables ingresos y gastos como se muestra a continuación:
+ 
+
+```{r, hist13, echo = TRUE, eval=FALSE}
+plot19_Ponde <-
+  ggplot(
+    diseno$variables,
+    aes( y = log_gasto, x = log_ingreso_hog,
+      weight = Factor
+    )
+  ) +
+  geom_point() +
+  theme_cepal()
+
+```
+
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot19_Ponde, filename =  "Imagenes/05_Plots/19_Fig_dispersion1.png")
+```
+
+
+## Scaterplot  
+Note, que este caso el parámetro `weight` no esta aportando información visual al gráfico.
+
+![Diagramas de dispersión del ingreso frente al gasto](Imagenes/05_Plots/19_Fig_dispersion1.png){width="300"}
+
+## Scaterplot  
+El parámetro `weight` lo podemos usar controlar el tamaño de los puntos de esa forma tener un mejor panorama del comportamiento de la muestra. 
+
+```{r, hist14, echo = TRUE, eval=FALSE}
+plot20_Ponde <-
+  ggplot(
+    diseno$variables,
+    aes( y = log_gasto, x = log_ingreso_hog)
+  ) +
+  geom_point(aes(size = Factor), alpha = 0.3) +
+  theme_cepal()
+
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot20_Ponde, filename =  "Imagenes/05_Plots/20_Fig_dispersion2.png")
+```
+
+
+## Scaterplot  
+
+![Diagramas de dispersión del ingreso frente al gasto con pesos](Imagenes/05_Plots/20_Fig_dispersion2.png){width="300"}
+
+## Scaterplot  
+Otra forma de usar la variable `Factor`, es asignar la intensidad del color según el valor de la variable. 
+
+```{r, hist15, echo = TRUE, eval = FALSE}
+plot21_Ponde <-
+  ggplot(
+     diseno$variables,
+    aes( y = log_gasto, x = log_ingreso_hog)
+  ) +
+  geom_point(aes(col = Factor), alpha = 0.3) +
+  theme_cepal()
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot21_Ponde, filename =  "Imagenes/05_Plots/21_Fig_dispersion3.png")
+```
+
+
+## Scaterplot  
+
+![Diagramas de dispersión del ingreso frente al gasto con pesos](Imagenes/05_Plots/21_Fig_dispersion3.png){width="300"}
+
+## Scaterplot  
+Podemos extender las bondades de los gráfico de `ggplot2` para obtener mayor información de las muestra. Por ejemplo, agrupar los datos por área, para lograr esto se introduce el parámetro `shape`.  
+
+```{r, hist16, echo = TRUE, eval=FALSE}
+plot22_Ponde <-
+  ggplot(
+    diseno$variables,
+    aes(
+      y = log_gasto, x = log_ingreso_hog,
+      shape = Area) # Formas por zona
+  ) + geom_point(aes(
+    size = Factor, color = Area
+  ), alpha = 0.3) +
+  labs(size = "Peso") +
+  scale_color_manual(values = colorArea) +
+  theme_cepal()
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot22_Ponde, filename =  "Imagenes/05_Plots/22_Fig_dispersion4.png")
+```
+
+
+
+## Scaterplot  
+
+![Diagramas de dispersión del ingreso frente al gasto con pesos por zona](Imagenes/05_Plots/22_Fig_dispersion4.png){width="300"}
+
+## Scaterplot  
+De forma similar podemos obtener el resultado por tenencia de vehículo 
+
+```{r, hist17, echo = TRUE, eval = FALSE}
+plot23_Ponde <-
+  ggplot( diseno$variables,
+    aes(
+      y = log_gasto, x = log_ingreso_hog,
+      shape = TIENEVEHICULOS )) +
+  geom_point(aes( size = Factor,
+    color = TIENEVEHICULOS), alpha = 0.3 ) +
+  labs(size = "Peso") +
+  scale_color_manual(values = colorVehiculo) +
+  theme_cepal()
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot23_Ponde, filename =  "Imagenes/05_Plots/23_Fig_dispersion5.png")
+```
+
+
+## Scaterplot  
+
+![Diagramas de dispersión del ingreso frente al gasto con pesos por tenencia de vehículo](Imagenes/05_Plots/23_Fig_dispersion5.png){width="300"}
+
+## Scaterplot  
+Un resultado equivalente se obtiene por región. 
+```{r, hist18, echo = TRUE, eval=FALSE}
+plot24_Ponde <-
+  ggplot(diseno$variables,
+    aes( y = log_gasto, x = log_ingreso_hog, shape = TIPOVIVIENDA  ) ) +
+  geom_point(aes( size = Factor, color = TIPOVIVIENDA ),
+  alpha = 0.3 ) +   labs(size = "Peso") +
+  scale_color_manual(values = colorvivienda) +
+  theme_cepal()
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot24_Ponde, filename =  "Imagenes/05_Plots/24_Fig_dispersion6.png")
+```
+
+
+## Scaterplot  
+
+![Diagramas de dispersión del ingreso frente al gasto con pesos por tenencia de vehículo](Imagenes/05_Plots/24_Fig_dispersion6.png){width="300"}
+
+
+# Diagrama de barras para variables categoricas  
+
+## Diagrama de barras
+Para realizar estos gráfico un primer paso es realizar las estimaciones puntuales. 
+```{r, hist19, echo = TRUE, eval=TRUE}
+(tamano_area <- diseno %>%
+  group_by(Area) %>%
+  summarise(
+    Nd = survey_total(vartype = c("se", "ci"))
+  ))
+```
+
+## Diagrama de barras
+
+```{r, hist19a, echo = TRUE, eval = FALSE}
+plot25_Ponde <- ggplot(
+  data = tamano_area,           # Fuente de los datos
+  aes(x = Area,                 # Valores en el eje x
+    y = Nd,                     # Altura de la barras 
+    ymax = Nd_upp,              # Limite superior del IC
+    ymin = Nd_low,              # Limite inferior del IC
+    fill = Area                 # Color del relleno
+  )) +  geom_bar( stat = "identity",# Valor incluido en la tabla 
+    position = "dodge") +
+  geom_errorbar(      # Gráfica del IC.
+    position = position_dodge(width = 0.9),
+    width = 0.3
+  ) + theme_bw()
+```
+
+
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot25_Ponde, filename =  "Imagenes/05_Plots/25_Fig_barras1.png")
+```
+
+
+## Diagrama de barras
+![Diagramas de barras total de personas estimado por área](Imagenes/05_Plots/25_Fig_barras1.png){width="400"}
+
+## Diagrama de barras
+Como se ha visto en los gráficos anteriores podemos extender a muchas categorías. 
+```{r, hist20, echo = TRUE, eval=TRUE}
+(tamano_pobreza <- diseno %>%
+  group_by(pobreza_LP = as.character(pobreza_LP)) %>%
+  summarise(
+    Nd = survey_total(vartype = c("se", "ci"))
+  ))
+```
+
+
+
+## Diagrama de barras
+El gráfico se obtiene con una sintaxis homologa a la anterior. 
+```{r, hist20a, echo = TRUE, eval=FALSE}
+plot26_Ponde <- ggplot(
+  data = tamano_pobreza,
+  aes( x = pobreza_LP, y = Nd,
+    ymax = Nd_upp,  ymin = Nd_low,
+    fill = pobreza_LP ) ) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_errorbar(
+    position = position_dodge(width = 0.9),
+    width = 0.3
+  ) +   theme_bw()
+```
+
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot26_Ponde, filename =  "Imagenes/05_Plots/26_Fig_barras2.png")
+```
+
+
+
+## Diagrama de barras
+![Diagramas de barras del total de personas condición de pobreza estimado ](Imagenes/05_Plots/26_Fig_barras2.png){width="300"}
+
+## Diagrama de barras
+
+De forma similar a los gráficos de Caja es posible realizar comparaciones entre más dos variables. 
+
+```{r, hist21, echo = TRUE, eval=FALSE}
+tamano_vehiculo_pobreza <- diseno %>%
+  group_by(TIENEVEHICULOS , 
+           pobreza_LP = as.character(pobreza_LP)) %>%
+  summarise(
+    Nd = survey_total(vartype = c("se", "ci"))
+  ) %>%   as.data.frame() 
+tamano_vehiculo_pobreza
+```
+
+
+
+## Diagrama de barras
+El gráfico para la tabla anterior queda de la siguiente forma. 
+
+```{r, hist21a, echo = TRUE, eval = FALSE}
+plot27_Ponde <-
+  ggplot(
+    data = tamano_vehiculo_pobreza,
+    aes(  x = pobreza_LP,  y = Nd,
+      ymax = Nd_upp,  ymin = Nd_low,
+      fill = as.factor(TIENEVEHICULOS) ) ) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_errorbar(  position = position_dodge(width = 0.9),
+    width = 0.3 ) + theme_bw() + labs(fill = "Tiene\nvehículo")
+plot27_Ponde
+```
+
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot27_Ponde, filename =  "Imagenes/05_Plots/27_Fig_barras3.png")
+```
+
+
+## Diagrama de barras
+
+![Diagramas de barras del total de personas condición de pobreza y tenencia de vehículo ](Imagenes/05_Plots/27_Fig_barras3.png){width="300"}
+
+
+## Diagrama de barras
+
+En estos gráficos podemos presentar proporciones por variables. 
+
+```{r, hist22, echo = TRUE, eval=FALSE}
+(prop_vehiculo_Pobreza <- sub_Urbano %>%
+  group_by(TIENEVEHICULOS,
+            pobreza_LP = as.character(pobreza_LP) ) %>%
+  summarise(
+    prop = survey_prop(
+      vartype = c("se", "ci")
+    )
+  ) %>%
+  data.frame())
+```
+
+## Diagrama de barras
+Después de tener la tabla con los valores a presentar el gráfico se realiza con la siguiente sintaxis. 
+```{r, hist22a, echo = TRUE, eval=FALSE}
+plot28_Ponde <- ggplot(
+  data = prop_vehiculo_Pobreza,
+  aes(
+    x = pobreza_LP, y = prop,
+    ymax = prop_upp, ymin = prop_low,
+    fill = TIENEVEHICULOS
+  )) + 
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_errorbar(
+    position = position_dodge(width = 0.9),
+    width = 0.3
+  ) + scale_fill_manual(values = colorVehiculo) +
+  theme_bw()
+```
+
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot28_Ponde, filename =  "Imagenes/05_Plots/28_Fig_barras4.png")
+```
+
+
+## Diagrama de barras
+
+
+![Diagramas de barras del total de personas condición de pobreza y tenencia de vehículo ](Imagenes/05_Plots/28_Fig_barras4.png){width="300"}
+
+
+## Diagrama de barras
+Proporción de hogares con vehículo condicionado al tipo de vivienda en el área rural.
+
+```{r, hist23, echo = TRUE, eval=FALSE}
+prop_vehiculo_vivienda <- sub_Rural %>%
+  group_by(TIPOVIVIENDA , TIENEVEHICULOS) %>%
+  summarise(
+    prop = survey_prop(vartype = c("se", "ci"))
+  ) %>%
+  data.frame()
+```
+
+## Diagrama de barras
+
+```{r, hist23a, echo = TRUE, eval = FALSE}
+plot29_Ponde <- ggplot(data = prop_vehiculo_vivienda,
+                       aes(
+                         x = TIPOVIVIENDA,
+                         y = prop,
+                         ymax = prop_upp,
+                         ymin = prop_low,
+                         fill = as.factor(TIENEVEHICULOS)
+                       )) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_errorbar(position = position_dodge(width = 0.9),
+                width = 0.3) + labs(fill = "Tiene vehículo") +
+  scale_fill_manual(values = colorVehiculo) +
+  theme_bw()
+
+```
+
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = plot29_Ponde, filename =  "Imagenes/05_Plots/29_Fig_barras5.png")
+```
+
+
+## Diagrama de barras
+
+![Diagramas de barras del total de hogares con vehículos y el tipo de vivienda](Imagenes/05_Plots/29_Fig_barras5.png){width="300"}
+
+
+# Creando mapas 
+
+## Introducción 
+
+- Los mapas son herramientas poderosas para visualizar datos, especialmente para indicadores sociales y demográficos.
+
+- Para crear mapas en R, se requiere información geoespacial que contenga coordenadas o delimitaciones geográficas.
+
+- Sitios web como http://www.diva-gis.org/gdata ofrecen bases de datos gratuitas con vectores geográficos.
+
+- Estos conjuntos de datos contienen observaciones de longitud y latitud que permiten representar puntos y polígonos en un mapa.
+
+- En R, existen varias bibliotecas para crear mapas, incluyendo `tmap` y `ggplot2`.
+
+
+## Mapas con tmap.
+
+Para realizar el mapa hay que contar con el archivo de *shepefile*
+
+```{r, hist24, echo=FALSE, eval=FALSE}
+library(sf)
+library(tmap)
+shapePais <- read_sf("Imagenes/05_Plots/30_shape/HND.shp")
+map1 <- tm_shape(shapePais) +  
+  tm_polygons(col = "dam")
+
+```
+
+```{r, echo = FALSE, eval = FALSE}
+tmap_save(map1, filename = "Imagenes/05_Plots/31_Fig_mapa1.png",
+          width = 2000, height = 1500, units = "px", dpi = 300)
+```
+
+## Mapas con tmap.
+El mapa resultante es: 
+
+![Mapa por departamento](Imagenes/05_Plots/31_Fig_mapa1.png){width="400"}
+
+
+## Estimación de la pobreza por departamento 
+
+```{r, map1 , echo=TRUE, eval=FALSE}
+diseno <-  diseno %>%
+  mutate(
+    dam = haven::as_factor(F1_A0_DEPARTAMENTO, levels  = "values"),
+    dam = stringi::stri_pad(str = dam, pad = "0", width = 2)
+  )
+prop_dam_pobreza <- diseno %>%  group_by(dam) %>%
+  summarise(prop = survey_mean(pobreza_LP, vartype = c("se"))) %>%
+  data.frame()
+prop_dam_pobreza %>% head(10)
+```
+
+## Tabla de estimación de la pobreza por departamento 
+
+```{r, map1 , echo=FALSE, eval=TRUE}
+```
+
+
+## Mapas con tmap.
+```{r, hist25, echo = TRUE, eval = FALSE}
+brks <- c(0, .05, 0.1, 0.15, .2, 0.25, 1)
+shape_temp <- inner_join(shapePais, prop_dam_pobreza) %>% 
+  tm_shape()
+
+map2 <- shape_temp + tm_polygons(
+  "prop",              # Nombre de la columna
+  breaks = brks,       # Puntos de corte 
+  title = "Pobreza",   # Titilo del labels. 
+  palette = "YlOrRd"   # Paleta y dirección de colores
+) 
+```
+
+
+```{r, echo = FALSE, eval = FALSE}
+tmap_save(map2, filename = "Imagenes/05_Plots/32_Fig_mapa2.png",
+          width = 2000, height = 1500, units = "px", dpi = 300)
+```
+
+
+## Mapas con tmap.
+
+El mapa resultante es: 
+
+
+![Mapa por departamento de la pobreza](Imagenes/05_Plots/32_Fig_mapa2.png){width="300"}
+
+
+## Estimación del ingreso medio por departemento
+
+```{r, echo = TRUE, eval=TRUE}
+prom_dam <- svyby(~log_ingreso_hog, ~dam, diseno,
+  svymean,
+  na.rm = T, covmat = TRUE,
+  vartype = c("cv")
+) %>% mutate(cv = cv*100)
+head(prom_dam)
+
+```
+
+## Mapas con tmap.
+
+```{r, hist26, echo = TRUE, eval = FALSE}
+brks <- c(0, 1, 3)
+shape_temp <- inner_join(shapePais, prom_dam) %>% 
+  tm_shape()
+
+map3 <- shape_temp + tm_polygons(
+  "cv",
+  breaks = brks,
+  title = "cv",
+  palette = c("#FFFFFF", "#000000"),
+) + tm_layout(asp = 0)
+```
+
+```{r, echo = FALSE, eval = FALSE}
+tmap_save(map3, filename = "Imagenes/05_Plots/33_Fig_mapa3.png",
+          width = 2000, height = 1500, units = "px", dpi = 300)
+```
+
+
+
+## Mapas con tmap.
+
+![Mapa por departamento del Coeficiente de variación del log. ingreso medio](Imagenes/05_Plots/33_Fig_mapa3.png){width="300"}
+
+
+## Estimación de la pobreza por departamento.
+
+Estimación de la pobreza por departamento y área
+
+```{r, echo = TRUE, eval=TRUE}
+prom_dam_vehiculo <- diseno %>%
+  group_by(dam, Area, TIENEVEHICULOS) %>%
+  summarise(prop = survey_mean(pobreza_LP , vartype = "cv")) %>%
+  filter(TIENEVEHICULOS == "1. Sí", Area == "1. Urbana")
+data.frame(prom_dam_vehiculo) %>% head()
+```
+
+## Mapas con tmap.
+
+```{r, hist27, echo = TRUE, eval = FALSE}
+shape_temp <- inner_join(shapePais, prom_dam_vehiculo) %>% 
+  tm_shape()
+
+map4 <- shape_temp + tm_polygons(
+  "prop",
+  title = "Pobreza",
+) + tm_layout(asp = 0)
+```
+
+```{r, echo = FALSE, eval = FALSE}
+tmap_save(map4, filename = "Imagenes/05_Plots/34_Fig_mapa4.png",
+          width = 2000, height = 1500, units = "px", dpi = 300)
+```
+
+
+## Mapas con tmap.
+
+![Mapa por departamento de la pobreza monetaria](Imagenes/05_Plots/34_Fig_mapa4.png){width="300"}
+
+
+
+## Mapas con tmap.
+
+```{r, hist28, echo = TRUE, eval = FALSE}
+map5 <- shape_temp + tm_polygons(
+  "prop_cv",
+  title = "cv",
+  palette = c("#FFFFFF", "#000000"),
+  breaks = c(0, 0.2, 1)
+) + tm_layout(asp = 0)
+```
+
+
+
+```{r, echo = FALSE, eval = FALSE}
+tmap_save(map5, filename = "Imagenes/05_Plots/35_Fig_mapa5.png",
+          width = 2000, height = 1500, units = "px", dpi = 300)
+```
+
+## Mapas con tmap.
+
+![Mapa por departamento del CV para la estimación de la pobreza monetaria](Imagenes/05_Plots/35_Fig_mapa5.png){width="300"}
+
+
+
+## ¡Gracias!
+
+::: yellow
+*Email*: [andres.gutierrez\@cepal.org](mailto:andres.gutierrez@cepal.org){.email}
+:::

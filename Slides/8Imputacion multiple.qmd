@@ -1,0 +1,2083 @@
+---
+title: "Análisis de encuestas de hogares con R"
+subtitle: "Modulo 8: Métodos de imputación"
+author: |
+  | Andrés Gutiérrez.
+  | Stalyn Guerrero. 
+institute: "CEPAL - Unidad de Estadísticas Sociales"
+format: 
+  beamer: 
+    colortheme: dove
+    fonttheme: default
+    incremental: false
+    aspectratio: 1610
+    #theme: Berkeley
+    toc: true
+    slide_level: 2
+    #highlight: pygments
+Email: andres.gutierrez@cepal.org
+lang: es
+editor_options:
+  markdown:
+    wrap: 90
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  cache = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  echo = TRUE,
+  error = FALSE,
+  cache.path = "00_Caches/08_Imputacion/"
+)
+options(digits = 4)
+options(tinytex.verbose = TRUE)
+library (survey)
+library(srvyr)
+library(convey)
+library(TeachingSampling)
+library(printr)
+library(stargazer)
+library(broom)
+library(jtools)
+library(modelsummary)
+library(patchwork)
+library(ggplot2)
+library(stringr)
+library(magrittr)
+#rm(list = ls())
+```
+
+# Introducción
+
+## Introducción valores perdidos
+
+-   Sea $\boldsymbol{X}_{n \times p} = x_{ij}$ una matriz completa (sin valores
+    perdidos), de tal forma que $X_{ij}$ es el valor de la variable $j$,
+    $j=1, \dots, p$ en el caso $i$, $i=1, \dots, n$.
+
+-   Sea $\boldsymbol{M}_{n \times p} = m_{ij}$, donde $m_{ij} = 1$ si $x_{ij}$
+    es un dato perdido y $m_{ij}=0$ si $x_{ij}$ está presente.
+
+-   Note que la matriz $M$ describe el patrón de missing, y su media marginal de
+    columna, puede ser interpretada como la probabilidad de que $x_{ij}$ sea
+    missing.
+
+## Introducción valores perdidos
+
+-   La matriz $\boldsymbol{M}_{n \times p}$ presenta un comportamiento
+    completamente al azar (MCAR): si la probabilidad de respuesta es
+    independiente de las variables observadas y de las no observadas
+    completamente. El mecanismo de pérdida es ignorable tanto para inferencias
+    basadas en muestreo como en máxima verosimilitud.
+
+-   Los valores de la matriz $\boldsymbol{M}_{n \times p}$ son al azar (MAR): si
+    la probabilidad de respuesta es independiente de las variables no observadas
+    completamente y no de las observadas. El mecanismo de pérdida es ignorable
+    para inferencias basadas en máxima verosimilitud.
+
+-   Los datos no están perdidos al azar (MNAR): si la probabilidad de respuesta
+    no es independiente de las variables no observadas completamente y
+    posiblemente, también, de las observadas El mecanismo de pérdida es no
+    ignorable.
+
+## Introducción valores perdidos
+
+En las dos figuras siguientes, se ilustran los casos de observaciones perdidas de manera aleatoria y con un patrón identificado:
+
+![](Imagenes/08_Imputacion/fig1.png){width="250"}
+![](Imagenes/08_Imputacion/fig2.png){width="250"}
+
+## Lectura de la base
+
+De la base de datos cargada se filtran encuestados mayores a 15 años y se calcula la proporción de la población desempleada, inactiva y empleada antes de generar los valores faltantes
+
+\tiny
+
+```{r}
+encuesta <- readRDS("Imagenes/06_MLG1/ENIGH_HND_Hogar.rds")
+encuesta <- encuesta %>% # Base de datos.
+  transmute(
+    LLAVE_HOGAR,
+    F1_A0_UPM,
+    estrato = haven::as_factor(F1_A0_ESTRATO),
+    dam = haven::as_factor(F1_A0_DEPARTAMENTO),
+    Area = haven::as_factor(F1_A0_AREA),
+    ingreso_per  = ifelse(YDISPONIBLE_PER < 0 , 0 , YDISPONIBLE_PER) ,
+    gasto_per = GASTO_CORRIENTE_HOGAR / CANTIDAD_PERSONAS,
+    pobreza_LP = case_when(
+      ingreso_per < 3046 & Area == "1. Urbana" ~ "1",
+      ingreso_per < 1688 & Area == "2. Rural" ~ "1",
+      TRUE ~ "0"
+    ), 
+     TIPOVIVIENDA = haven::as_factor(F1_A1_P1_TIPOVIVIENDA),
+     TIENEVEHICULOS = haven::as_factor(F2_A2_P1_TIENEVEHICULOS),
+     TECHOVIVIENDA = haven::as_factor(F1_A1_P4_TECHOVIVIENDA),
+     log_ingreso_per = log(ingreso_per  + 500),
+     log_gasto_per = log(gasto_per  + 500),
+    Factor
+  )
+
+(tab_antes <- prop.table(table(encuesta$pobreza_LP)))
+(med_antes <- mean(encuesta$log_gasto_per, na.rm = TRUE))
+```
+
+## Creando valores perdidos
+
+Se genera un 20% de valores faltantes siguiendo un esquema MCAR como sigue:
+
+```{r}
+set.seed(1234)
+encuesta_MCAR <-  sample_frac(encuesta, 0.7 )
+dat_plot <- bind_rows(
+  list(encuesta_MCAR = encuesta_MCAR, 
+       encuesta = encuesta), .id = "Caso"  )
+```
+
+## Creando valores perdidos
+
+```{r, MCAR1, echo=TRUE, eval=FALSE}
+p1 <- ggplot(dat_plot, aes(x=Area, y = log_ingreso_per)) + 
+  geom_boxplot() + facet_grid(.~Caso) + theme_bw()+
+  geom_hline(yintercept = mean(encuesta$log_ingreso_per), 
+             col = "red")
+
+p2 <- ggplot(dat_plot, aes(x=TIPOVIVIENDA, y = log_ingreso_per)) + 
+  geom_boxplot() + facet_grid(.~Caso) +theme_bw()+
+  geom_hline(yintercept = mean(encuesta$log_ingreso_per), 
+             col = "red")
+library(patchwork)
+p0 <- p1|p2
+```
+
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p0, filename =  "Imagenes/08_Imputacion/03_MCAR1.png")
+```
+
+## Creando valores perdidos
+
+![Valores perdidos con el esquema MCAR ](Imagenes/08_Imputacion/03_MCAR1.png){width="300"}
+
+## Creando valores perdidos
+
+```{r, MCAR2, echo=TRUE, eval=FALSE}
+p1 <- ggplot(dat_plot, aes(x = log_ingreso_per, fill = Caso)) + 
+  geom_density(alpha = 0.3) + theme_bw() +
+  theme(legend.position = "bottom") +
+  geom_vline(xintercept = mean(encuesta$log_ingreso_per), 
+             col = "red")
+
+p2 <- ggplot(dat_plot, aes(x = log_ingreso_per, fill = Caso)) + 
+  geom_density(alpha = 0.3) + facet_grid(.~TIPOVIVIENDA) + 
+  theme_bw()+ 
+  geom_vline(xintercept = mean(encuesta$log_ingreso_per), 
+             col = "red") +
+  theme(legend.position = "none")
+p0 <- (p1/p2)
+```
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p0, filename =  "Imagenes/08_Imputacion/04_MCAR2.png")
+```
+
+
+## Creando valores perdidos
+
+
+![Densidades del ingreso con Valores perdidos por el esquema MCAR ](Imagenes/08_Imputacion/04_MCAR2.png){width="300"}
+
+## Creando valores perdidos
+
+```{r, MCAR3, echo=TRUE, eval=FALSE}
+p1 <- ggplot(dat_plot, aes(x = log_gasto_per, fill = Caso)) + 
+  geom_density(alpha = 0.3) + theme_bw() +
+  theme(legend.position = "bottom") +
+  geom_vline(xintercept = mean(encuesta$log_gasto_per), 
+             col = "red")
+
+p2 <- ggplot(dat_plot, aes(x = log_gasto_per, fill = Caso)) + 
+  geom_density(alpha = 0.3) + facet_grid(.~TIPOVIVIENDA) + 
+  theme_bw()+ 
+  geom_vline(xintercept = mean(encuesta$log_gasto_per), 
+             col = "red") +
+  theme(legend.position = "none")
+p0 <- (p1/p2)
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p0, filename =  "Imagenes/08_Imputacion/05_MCAR3.png")
+```
+
+
+## Creando valores perdidos
+
+![Densidades del gasto con valores perdidos por el esquema MCAR ](Imagenes/08_Imputacion/05_MCAR3.png){width="300"}
+
+####################################
+
+## Creando valores perdidos
+
+```{r, MCAR21, echo=TRUE, eval=FALSE}
+p1 <- ggplot(dat_plot, aes(x = log_ingreso_per, fill = Caso)) + 
+  geom_density(alpha = 0.3) + 
+  facet_grid(TIPOVIVIENDA ~ TIENEVEHICULOS) + 
+  theme_bw()+ 
+  geom_vline(xintercept = mean(encuesta$log_ingreso_per), 
+             col = "red") +
+  theme(legend.position = "none")
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p1, filename =  "Imagenes/08_Imputacion/06_MCAR21.png")
+```
+
+## Creando valores perdidos
+
+
+![Densidades del ingreso con Valores perdidos por el esquema MCAR ](Imagenes/08_Imputacion/06_MCAR21.png){width="300"}
+
+## Creando valores perdidos
+
+```{r, MCAR22, echo=TRUE, eval=FALSE}
+p2 <- ggplot(dat_plot, aes(x = log_gasto_per, fill = Caso)) + 
+  geom_density(alpha = 0.3) +
+  facet_grid(TIPOVIVIENDA~TIENEVEHICULOS) + 
+  theme_bw()+ 
+  geom_vline(xintercept = mean(encuesta$log_gasto_per), 
+             col = "red") +
+  theme(legend.position = "none")
+
+```
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p2, filename =  "Imagenes/08_Imputacion/06_MCAR22.png")
+```
+
+
+
+## Creando valores perdidos
+
+![Densidades del ingreso con valores perdidos por el esquema MCAR ](Imagenes/08_Imputacion/06_MCAR22.png){width="300"}
+
+
+## Creando valores perdidos
+
+simulemos ahora una pérdida de información MAR como sigue:
+
+```{r}
+library(TeachingSampling)
+temp_estrato <- paste0(encuesta$dam, encuesta$Area)
+temp_Nh <- as.data.frame(table(temp_estrato)) %>% 
+  rename(Nh = Freq) %>%
+  mutate(nh = ceiling(Nh*.1)) 
+dim(temp_Nh)
+```
+
+## Creando valores perdidos
+```{r, echo=FALSE}
+head(temp_Nh, 16)
+```
+
+
+
+## Creando valores perdidos
+
+```{r}
+set.seed(1234)
+sel <- S.STSI(S = temp_estrato, 
+              Nh = temp_Nh$Nh,
+              nh = temp_Nh$nh)
+encuesta_MAR <- encuesta[-sel,]
+dat_plot2 <- bind_rows(
+  list(encuesta_MAR = encuesta_MAR,
+       encuesta = encuesta), .id = "Caso"  )
+
+```
+
+
+## Creando valores perdidos
+
+```{r, MAR12, echo=TRUE, eval=FALSE}
+p1 <- ggplot(dat_plot2, aes(x= Caso, y = log_ingreso_per)) + 
+   geom_hline(yintercept = mean(encuesta$log_ingreso_per), 
+              col = "red") + 
+  geom_boxplot() +
+  facet_grid(Area ~TIPOVIVIENDA) + theme_bw()
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p1, filename =  "Imagenes/08_Imputacion/060_MAR1.png")
+```
+
+
+## Creando valores perdidos
+
+![Valores perdidos con el esquema MCAR para el ingreso ](Imagenes/08_Imputacion/060_MAR1.png){width="300"}
+
+
+## Creando valores perdidos
+
+```{r, MAR1, echo=TRUE, eval=FALSE}
+p1 <- ggplot(dat_plot2, aes(x = Caso, y = log_gasto_per)) +
+  geom_hline(yintercept = mean(encuesta$log_gasto_per),
+             col = "red") +
+  geom_boxplot() +
+  facet_grid(Area ~ TIPOVIVIENDA) + theme_bw()
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p1, filename =  "Imagenes/08_Imputacion/06_MAR1.png")
+```
+
+
+
+## Creando valores perdidos
+
+![Valores perdidos con el esquema MCAR para el gasto ](Imagenes/08_Imputacion/06_MAR1.png){width="300"}
+
+## Creando valores perdidos
+
+```{r, MAR2, echo=TRUE, eval=FALSE}
+p1 <- ggplot(dat_plot2, aes(x = log_ingreso_per, fill = Caso)) +
+  geom_density(alpha = 0.3) + theme_bw() +
+  theme(legend.position = "bottom") +
+  geom_vline(xintercept = mean(encuesta$log_ingreso_per),
+             col = "red")
+
+p2 <- ggplot(dat_plot2, aes(x = log_ingreso_per, fill = Caso)) +
+  facet_grid(. ~ TIPOVIVIENDA) +
+  geom_density(alpha = 0.3) + theme_bw() +
+  theme(legend.position = "none") +
+  geom_vline(xintercept = mean(encuesta$log_ingreso_per),
+             col = "red")
+p0 <- p1 / p2
+```
+
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p0, filename =  "Imagenes/08_Imputacion/07_MAR2.png")
+```
+
+
+
+## Creando valores perdidos
+
+![Densidades del ingreso con valores perdidos por el esquema MCAR ](Imagenes/08_Imputacion/07_MAR2.png){width="300"}
+
+## Creando valores perdidos
+
+```{r, MAR3, echo=TRUE, eval=FALSE}
+p1 <- ggplot(dat_plot2, 
+             aes(x = log_gasto_per, fill = Caso)) + 
+ geom_density(alpha = 0.3) + theme_bw() +
+  theme(legend.position = "bottom") +
+  geom_vline(
+    xintercept = mean(encuesta$log_gasto_per), 
+             col = "red")
+
+p2 <- ggplot(dat_plot2, 
+             aes(x = log_gasto_per, fill = Caso)) + 
+  facet_grid(.~TIPOVIVIENDA) +
+  geom_density(alpha = 0.3) + theme_bw() +
+  theme(legend.position = "none") +
+  geom_vline(
+    xintercept = mean(encuesta$log_gasto_per), 
+             col = "red")
+p0 <- p1/p2
+```
+
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p0, filename =  "Imagenes/08_Imputacion/08_MAR3.png")
+```
+
+## Creando valores perdidos
+
+
+![Densidades del gastos con valores perdidos por el esquema MCAR ](Imagenes/08_Imputacion/08_MAR3.png){width="300"}
+
+## Creando valores perdidos
+
+Generemos ahora un esquema de pérdida de información en una encuesta NMAR (siglas en inglés de “Not Missing at Random”).
+
+```{r}
+n <- ceiling(nrow(encuesta) * .80)
+encuesta_MNAR <- encuesta %>%
+  arrange((log_ingreso_per)) %>%
+  slice(1:n)
+
+dat_plot3 <- bind_rows(list(encuesta_MNAR = encuesta_MNAR,
+                            encuesta = encuesta), .id = "Caso")
+
+```
+
+## Creando valores perdidos
+
+```{r, MNAR1, echo=TRUE, eval=FALSE}
+p1 <- ggplot(dat_plot3, aes(x = log_ingreso_per, fill = Caso)) +
+  geom_density(alpha = 0.2) + theme_bw() +
+  theme(legend.position = "bottom") +
+  geom_vline(xintercept = mean(encuesta$log_ingreso_per),
+             col = "red") +
+  geom_vline(xintercept = mean(encuesta_MNAR$log_ingreso_per),
+             col = "blue")
+p1
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p1, filename =  "Imagenes/08_Imputacion/09_MNAR1.png")
+```
+
+
+## Creando valores perdidos
+
+![Densidades del ingreso con valores perdidos por el esquema MNAR ](Imagenes/08_Imputacion/09_MNAR1.png){width="300"}
+
+## Creando valores perdidos
+
+```{r, MNAR2, echo=TRUE, eval=FALSE}
+p1 <- ggplot(dat_plot3,
+             aes(x = log_gasto_per, fill = Caso)) +
+  geom_density(alpha = 0.2) + theme_bw() +
+  theme(legend.position = "bottom") +
+  geom_vline(xintercept = mean(encuesta$log_gasto_per),
+             col = "red") +
+  geom_vline(xintercept = mean(encuesta_MNAR$log_gasto_per),
+             col = "blue")
+p1
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p1, filename =  "Imagenes/08_Imputacion/10_MNAR2.png")
+```
+
+## Creando valores perdidos
+
+
+![Densidades del gasto con valores perdidos por el esquema MNAR ](Imagenes/08_Imputacion/10_MNAR2.png){width="300"}
+
+## Creando valores perdidos
+
+```{r, MNAR3, echo=TRUE, eval=FALSE}
+p1 <- ggplot(dat_plot3, aes(x= Caso, y = log_gasto_per)) + 
+   geom_hline(yintercept = mean(encuesta$log_gasto_per),
+              col = "red") +  geom_boxplot() +
+  facet_grid(Area~TIPOVIVIENDA) + theme_bw()
+```
+
+```{r, echo=FALSE, eval=FALSE}
+saveRDS(list(encuesta_MAR = encuesta_MAR, 
+             encuesta_MCAR = encuesta_MCAR, 
+             encuesta_MNAR = encuesta_MNAR),
+        file = "Imagenes/08_Imputacion/encuesta_imp.rds")
+
+ggsave(plot = p1, filename =  "Imagenes/08_Imputacion/10_MNAR3.png")
+```
+
+
+## Creando valores perdidos
+
+![Impacto de la no respuesta con un esquema NMAR ](Imagenes/08_Imputacion/10_MNAR3.png){width="300"}
+
+## Creando valores perdidos
+
+Para efectos de ejemplificar la solución del problema a los datos faltantes en una encuesta de hogares, generemos la siguiente base de datos:
+
+```{r}
+encuesta <- full_join(
+  encuesta,
+  encuesta_MCAR %>% 
+    transmute(
+    LLAVE_HOGAR,
+    pobreza_LP_missin = pobreza_LP ,
+    TIENEVEHICULOS_missin = TIENEVEHICULOS ,
+    TECHOVIVIENDA_missin = TECHOVIVIENDA,
+    log_ingreso_per_missin = log_ingreso_per ,
+    log_gasto_per_missin =   log_gasto_per 
+    )
+)
+```
+
+# Imputación de valores perdidos.
+
+## Imputación de valores perdidos.
+Para tener como referencia el porcentaje de datos faltantes, se ejecuta el siguiente comando:
+```{r}
+encuesta %>% group_by(Area) %>% 
+  summarise(
+    log_gasto_per = sum(is.na(log_gasto_per_missin) / n()))
+
+encuesta %>% group_by(TIENEVEHICULOS) %>% 
+summarise(
+    log_gasto_per = sum(is.na(log_gasto_per_missin) / n()))
+```
+
+## Imputación de valores perdidos.
+
+```{r}
+encuesta %>% group_by(TIPOVIVIENDA) %>% 
+summarise(
+    log_gasto_per = sum(is.na(log_gasto_per_missin) / n()))
+
+```
+
+## Imputación por la media no condicional.
+
+- Consiste en asignar el promedio de la totalidad de los datos a los valores
+faltantes, este método no afecta el promedio, pero si afecta la variabilidad, el sesgo y los percentiles.
+
+- Este método es bastante simple y rápido, y puede ser útil en ciertas situaciones, especialmente cuando la variable en cuestión no tiene una distribución muy sesgada o cuando los valores faltantes son relativamente pocos en comparación con el tamaño de la muestra.
+
+## Imputación por la media no condicional.
+
+La imputación se realiza utilizando la media aritmética de los valores no faltantes en log_gasto_per_missin y se almacena en una nueva variable llamada log_gasto_per_imp
+
+```{r}
+promedio_ingreso <- mean(encuesta$log_ingreso_per_missin, na.rm = TRUE)
+promedio_gasto <- mean(encuesta$log_gasto_per_missin, na.rm = TRUE)
+encuesta %<>%
+  mutate(
+    log_ingreso_per_imp = ifelse(is.na(log_ingreso_per_missin), 
+                           promedio_ingreso, log_ingreso_per_missin),
+    log_gasto_per_imp = ifelse(is.na(log_gasto_per_missin), 
+                           promedio_gasto, log_gasto_per_missin))
+sum(is.na(encuesta$log_ingreso_per_imp))
+sum(is.na(encuesta$log_gasto_per_imp))
+```
+
+
+## Imputación por la media no condicional.
+
+```{r, Media_1, echo=TRUE, eval=FALSE}
+## Ordenando la base para gráfica 
+dat_plot4 <- tidyr::gather(
+  encuesta %>% dplyr::select(Area,TIPOVIVIENDA,log_ingreso_per, log_ingreso_per_imp),
+  key = "Caso", value = "log_ingreso_per2", -Area,-TIPOVIVIENDA)
+
+p1 <- ggplot(dat_plot4, aes(x = log_ingreso_per2, fill = Caso)) + 
+  geom_density(alpha = 0.2) + theme_bw() +
+   theme(legend.position = "bottom") +
+  geom_vline(
+    xintercept = mean(encuesta$log_ingreso_per), 
+             col = "red") +
+  geom_vline(
+    xintercept = mean(encuesta$log_ingreso_per_imp), 
+             col = "blue")
+p1
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p1, filename =  "Imagenes/08_Imputacion/11_IMP1.png")
+```
+
+## Imputación por la media no condicional.
+
+![Imputación por la media no condicional para el ingreso ](Imagenes/08_Imputacion/11_IMP1.png){width="300"}
+
+## Imputación por la media no condicional.
+
+```{r, Media_0, echo=TRUE, eval=FALSE}
+## Ordenando la base para gráfica 
+dat_plot4 <- tidyr::gather(
+  encuesta %>% dplyr::select(Area,TIPOVIVIENDA,log_gasto_per, 
+                             log_gasto_per_imp),
+  key = "Caso", value = "log_gasto_per2", -Area,-TIPOVIVIENDA)
+
+p1 <- ggplot(dat_plot4, aes(x = log_gasto_per2, fill = Caso)) + 
+  geom_density(alpha = 0.2) + theme_bw() +
+   theme(legend.position = "bottom") +
+  geom_vline(
+    xintercept = mean(encuesta$log_gasto_per), 
+             col = "red") +
+  geom_vline(
+    xintercept = mean(encuesta$log_gasto_per_imp), 
+             col = "blue")
+p1
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p1, filename =  "Imagenes/08_Imputacion/12_IMP1.png")
+```
+
+## Imputación por la media no condicional.
+
+![Imputación por la media no condicional para el gasto ](Imagenes/08_Imputacion/12_IMP1.png){width="300"}
+
+
+## Imputación por la media condicional.
+
+- A diferencia de la imputación por la media no condicional, considera otras variables al calcular la media, reconociendo que esta puede variar según los valores de otras variables.
+
+- Se basa en la idea de que la media de una variable puede variar según los valores de otras variables en el conjunto de datos.
+
+- Proporciona imputaciones más precisas al tener en cuenta las relaciones entre diferentes variables en el conjunto de datos.
+
+- Es especialmente útil cuando hay correlaciones entre variables o patrones de valores faltantes en los datos.
+
+- Aunque puede mejorar la precisión, puede ser más complejo y requerir más recursos computacionales que la imputación no condicional.
+
+
+## Imputación por la media condicional.
+
+```{r}
+encuesta %<>% group_by(estrato) %>%
+  mutate(
+    log_gasto_per_imp = ifelse(is.na(log_gasto_per_missin),
+     mean(log_gasto_per_missin, na.rm = TRUE),
+     log_gasto_per_missin)) %>% data.frame()
+
+sum(is.na(encuesta$log_gasto_per_imp))
+
+```
+
+
+```{r}
+encuesta %<>% group_by(estrato) %>%
+  mutate(
+    log_ingreso_per_imp = ifelse(is.na(log_ingreso_per_missin),
+     mean(log_ingreso_per_missin, na.rm = TRUE),
+     log_ingreso_per_missin)) %>% data.frame()
+sum(is.na(encuesta$log_ingreso_per_imp))
+
+```
+
+
+## Imputación por la media condicional.
+
+Se calculan las medias y desviaciones estándar tanto para los datos imputados como los originales y así poder comparar le efecto de la imputación realizada:
+
+```{r}
+encuesta %>% summarise(
+  log_ingreso = mean(log_ingreso_per),
+  log_ingreso_sd = sd(log_ingreso_per),
+  log_ingreso_imp_ = mean(log_ingreso_per_imp),
+  log_ingreso_imp_sd = sd(log_ingreso_per_imp))
+```
+
+## Imputación por la media condicional.
+
+```{r}
+encuesta %>% summarise(  
+  log_gasto = mean(log_gasto_per),
+  log_gasto_sd = sd(log_gasto_per),
+  log_gasto_imp_ = mean(log_gasto_per_imp),
+  log_gasto_imp_sd = sd(log_gasto_per_imp))
+```
+
+## Imputación por la media condicional.
+
+Para poder comparar los resultados, calculemos el sesgo relativo de la imputación el cual se calcula como sigue:
+
+$$
+BR=\frac{ingreso - ingreso_{imp}}{ingreso}\times100\%
+$$
+
+```{r}
+100*(8.794	- 8.797)/8.794	
+```
+
+## Imputación por la media condicional.
+
+```{r}
+encuesta %>%group_by(Area) %>%  summarise(
+  log_gasto = mean(log_gasto_per),
+  log_gasto_sd = sd(log_gasto_per),
+  log_gasto_imp_ = mean(log_gasto_per_imp),
+  log_gasto_imp_sd = sd(log_gasto_per_imp)) %>% 
+  mutate(BR = 100*(log_gasto - log_gasto_imp_)/log_gasto )
+```
+
+
+## Imputación por la media condicional.
+
+\tiny
+
+```{r}
+encuesta %>% group_by(TIPOVIVIENDA) %>%  summarise(
+  log_gasto = mean(log_gasto_per),
+  log_gasto_sd = sd(log_gasto_per),
+  log_gasto_imp = mean(log_gasto_per_imp),
+  log_gasto_imp_sd = sd(log_gasto_per_imp)) %>% 
+  mutate(BR = 100*(log_gasto - log_gasto_imp)/log_gasto )
+```
+
+## Imputación por la media condicional.
+
+```{r, Media_3, echo=TRUE, eval=FALSE}
+## Ordenando la base para gráfica 
+dat_plot5 <- tidyr::gather(
+  encuesta %>% dplyr::select(Area,TIPOVIVIENDA,log_gasto_per, 
+                             log_gasto_per_imp),
+  key = "Caso", value = "log_gasto_per2", -Area,-TIPOVIVIENDA)
+
+p1 <- ggplot(dat_plot5, aes(x = log_gasto_per2, fill = Caso)) + 
+  geom_density(alpha = 0.2) + theme_bw() +
+   theme(legend.position = "bottom") +
+  geom_vline(
+    xintercept = mean(encuesta$log_gasto_per), 
+             col = "red") +
+  geom_vline(
+    xintercept = mean(encuesta$log_gasto_per_imp), 
+             col = "blue")
+p1
+```
+
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p1, filename =  "Imagenes/08_Imputacion/13_IMP2.png")
+```
+
+
+## Imputación por la media condicional.
+
+![Imputación por la media no condicional sobre el gasto ](Imagenes/08_Imputacion/13_IMP2.png){width="300"}
+
+## Imputación por la media condicional.
+
+Si se observa ahora la distribunción de los datos por área y TIPOVIVIENDA, se puede observar también una buena imputación de las observaciones.
+
+```{r, Media_4, echo=TRUE, eval=FALSE}
+p1 <- ggplot(dat_plot5, aes(x= Caso, y = log_gasto_per2)) + 
+   geom_hline(yintercept = mean(encuesta$log_gasto_per),
+              col = "red") +  geom_boxplot() +
+  facet_grid(Area~TIPOVIVIENDA) + theme_bw()
+p1
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p1, filename =  "Imagenes/08_Imputacion/14_IMP3.png")
+```
+
+
+
+## Imputación por la media condicional.
+
+![Imputación por la media no condicional TIPOVIVIENDAo y Área ](Imagenes/08_Imputacion/14_IMP3.png){width="300"}
+
+## Imputación por Hot-deck y Cold-deck
+
+**Hot-deck** La imputación *hot deck* consiste en reemplazar los valores
+faltantes de una o más variables para un no encuestado (llamado receptor) con
+valores observados de un encuestado (el donante) que es similar al no encuestado
+con respecto a las características observadas en ambos casos.
+
+**Cold-deck** A este método lo llamamos *Cold-deck* por analogía con *Hot-deck*.
+El método consiste en reemplazar el valor faltante por valores de una fuente no
+relacionada con el conjunto de datos en consideración. Por ejemplo, se pide a un
+grupo de personas diligenciar una cuestionario sobre hábitos de lectura y que
+cinco personas no respondieron a un ítem. Entonces, la imputación de la
+respuesta por *Cold-deck* es sustituir las respuestas con información de un
+donante similar en una encuesta realizada anteriormente.
+
+## Imputación por hot-deck
+
+```{r}
+donante <- which(!is.na(encuesta$log_gasto_per_missin))
+receptor <- which(is.na(encuesta$log_gasto_per_missin))
+encuesta$log_gasto_per_imp <- encuesta$log_gasto_per_missin
+set.seed(1234)
+for(ii in receptor){
+don_ii <- sample(x = donante, size = 1)
+encuesta$log_gasto_per_imp[ii] <- 
+  encuesta$log_gasto_per_missin[don_ii]  
+}
+sum(is.na(encuesta$log_gasto_per_imp))
+```
+
+## Imputación por hot-deck
+Una vez realizada la imputación, se calcula la media y la desviación de los datos completos e imputados:
+
+```{r}
+encuesta %>% summarise(
+  log_gasto = mean(log_gasto_per),
+  log_gasto_sd = sd(log_gasto_per),
+  log_gasto_imp_ = mean(log_gasto_per_imp),
+  log_gasto_imp_sd = sd(log_gasto_per_imp)) %>% 
+  mutate(BR = 100*(log_gasto - log_gasto_imp_)/log_gasto )
+```
+
+## Imputación por hot-deck
+
+Una vez realizada la imputación, se calcula la media y la desviación de los datos completos e imputados:
+
+```{r}
+encuesta %>%group_by(Area) %>%  summarise(
+  log_gasto = mean(log_gasto_per),
+  log_gasto_sd = sd(log_gasto_per),
+  log_gasto_imp_ = mean(log_gasto_per_imp),
+  log_gasto_imp_sd = sd(log_gasto_per_imp))%>% 
+  mutate(BR = 100*(log_gasto - log_gasto_imp_)/log_gasto )
+```
+
+## Imputación por hot-deck
+\tiny
+```{r}
+encuesta %>% group_by(TIPOVIVIENDA) %>%   summarise(
+  log_gasto = mean(log_gasto_per),
+  log_gasto_sd = sd(log_gasto_per),
+  log_gasto_imp_ = mean(log_gasto_per_imp),
+  log_gasto_imp_sd = sd(log_gasto_per_imp)
+) %>%
+  mutate(BR = 100 * (log_gasto - log_gasto_imp_) / log_gasto)
+```
+
+## Imputación por hot-deck
+
+```{r, hot_deck_1, echo=TRUE, eval=FALSE}
+## Ordenando la base para gráfica 
+dat_plot6 <- tidyr::gather(
+  encuesta %>% dplyr::select(Area,TIPOVIVIENDA,log_gasto_per,
+                             log_gasto_per_imp),
+  key = "Caso", value = "log_gasto_per2", -Area,-TIPOVIVIENDA)
+
+p1 <- ggplot(dat_plot6, aes(x = log_gasto_per2, fill = Caso)) + 
+  geom_density(alpha = 0.2) + theme_bw() +
+   theme(legend.position = "bottom") +
+  geom_vline(
+    xintercept = mean(encuesta$log_gasto_per), 
+             col = "red") +
+  geom_vline(
+    xintercept = mean(encuesta$log_gasto_per_imp), 
+             col = "blue")
+p1
+```
+
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p1, filename =  "Imagenes/08_Imputacion/15_IMP4_hot_deck.png")
+```
+
+
+## Imputación por hot-deck
+
+![Imputación por hot-deck ](Imagenes/08_Imputacion/15_IMP4_hot_deck.png){width="300"}
+
+## Imputación por hot-deck
+
+```{r, hot_deck_2, echo=FALSE, eval=FALSE}
+p1 <- ggplot(dat_plot6, aes(x= Caso, y = log_gasto_per2)) + 
+   geom_hline(yintercept = mean(encuesta$log_gasto_per),
+              col = "red") +  geom_boxplot() +
+  facet_grid(Area~TIPOVIVIENDA) + theme_bw()
+p1
+```
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p1, filename =  "Imagenes/08_Imputacion/16_IMP5_hot_deck.png")
+```
+
+
+![Imputación por hot-deck por TIPOVIVIENDA y área ](Imagenes/08_Imputacion/16_IMP5_hot_deck.png){width="300"}
+
+## Imputación por hot-deck
+
+Se implementa el método de imputación pero para la variable tiene vehículo
+
+```{r}
+donante <- which(!is.na(encuesta$log_gasto_per_missin))
+receptor <- which(is.na(encuesta$log_gasto_per_missin))
+encuesta$TIENEVEHICULOS_imp <- encuesta$TIENEVEHICULOS_missin
+(prop <- prop.table(
+  table(na.omit(encuesta$TIENEVEHICULOS_imp))))
+```
+
+## Imputación por hot-deck estado de ocupación
+
+```{r}
+set.seed(1234)
+imp <- sample(size = length(receptor),
+  c("1. Sí", "2. No"),
+       prob = prop, replace = TRUE     )
+encuesta$TIENEVEHICULOS_imp[receptor] <- imp 
+sum(is.na(encuesta$TIENEVEHICULOS_imp))
+```
+
+## Imputación por hot-deck
+Resultados antes de la imputación 
+
+```{r}
+prop.table(
+  table(encuesta$TIENEVEHICULOS_missin, useNA = "a"))
+```
+
+Resultados después de la imputación 
+```{r}
+prop.table(
+  table(encuesta$TIENEVEHICULOS_imp, useNA = "a"))
+
+```
+
+## Imputación por hot-deck
+Resultados antes de la imputación 
+```{r, echo=FALSE}
+prop.table( table(encuesta$Area, encuesta$TIENEVEHICULOS_missin, 
+        useNA = "a")) %>% addmargins() %>% data.frame() %>% 
+  tidyr::spread(key = "Var2",value = "Freq") %>% 
+  rename("TECHOVIVIENDA" = Var1 )
+```
+
+Resultados después de la imputación 
+
+```{r, echo=FALSE}
+prop.table( table(encuesta$Area, encuesta$TIENEVEHICULOS_imp,
+        useNA = "a")) %>% addmargins()%>% data.frame() %>% 
+  tidyr::spread(key = "Var2",value = "Freq") %>% 
+  rename("TECHOVIVIENDA" = Var1 ) 
+```
+
+## Imputación por hot-deck
+
+### Resultados antes de la imputación 
+\footnotesize
+```{r, echo=FALSE}
+prop.table( table(encuesta$TIPOVIVIENDA, encuesta$TIENEVEHICULOS_missin, 
+        useNA = "a")) %>% addmargins() %>% data.frame() %>% 
+  tidyr::spread(key = "Var2",value = "Freq") %>% 
+  rename("TIPOVIVIENDA" = Var1 )
+```
+\normalsize
+### Resultados después de la imputación 
+\footnotesize
+```{r, echo=FALSE}
+prop.table( table(encuesta$TIPOVIVIENDA, encuesta$TIENEVEHICULOS_imp,
+        useNA = "a")) %>% addmargins() %>% data.frame() %>% 
+  tidyr::spread(key = "Var2",value = "Freq") %>% 
+  rename("TIPOVIVIENDA" = Var1 ) 
+```
+
+## Imputación por regresión
+
+- La imputación por regresión es una técnica que estima y asigna valores a datos faltantes basándose en un modelo de regresión construido a partir de variables disponibles en el conjunto de datos.
+
+- Se selecciona una variable objetivo con valores faltantes y se identifican variables predictoras con correlación significativa. Se ajusta un modelo de regresión utilizando estas variables para predecir los valores faltantes.
+
+- Requiere conocimientos sólidos de análisis de datos y modelado estadístico. Su aplicación puede depender de la calidad y cantidad de datos disponibles y la distribución de los valores faltantes.
+
+- **Limitaciones:** Debe utilizarse con precaución y considerando sus limitaciones, ya que su eficacia depende de la validez del modelo y la disponibilidad de datos.
+
+## Imputación por regresión
+
+- Se ejemplifica imputando las variables de ingreso y tipo de vivienda utilizando modelos de regresión lineal múltiple y multinomial, respectivamente, con covariables como área, TIPOVIVIENDA y empleo.
+
+```{r, warning=FALSE, message=FALSE}
+require(nnet)
+encuesta$log_gasto_per_imp <- encuesta$log_gasto_per_missin
+encuesta$TECHOVIVIENDA_imp <- encuesta$TECHOVIVIENDA_missin
+encuesta_obs <- filter(encuesta, 
+                       !is.na(log_gasto_per_missin))
+encuesta_no_obs <- filter(encuesta, 
+                          is.na(log_gasto_per_missin))
+```
+
+## Imputación por regresión
+
+Modelo para imputación del ingreso 
+
+```{r, warning=FALSE, message=FALSE}
+mod <- lm(log_gasto_per ~ Area + TIPOVIVIENDA +log_ingreso_per,
+          data = encuesta_obs)
+```
+
+Modelo para imputación del estado de ocupación  
+
+```{r, warning=FALSE, message=FALSE}
+mod.mult <- multinom(
+             TECHOVIVIENDA ~ Area + TIPOVIVIENDA + log_ingreso_per,
+             data = encuesta_obs, trace = FALSE)
+```
+
+## Imputación por regresión
+
+Una vez ajustado los modelos tanto para las variable ingreso como para empleados, se realiza el proceso de predicción como se muestra a continuación:
+
+```{r}
+imp <- predict(mod, encuesta_no_obs)
+imp.mult <- predict(mod.mult, encuesta_no_obs, 
+                    type =  "class")
+encuesta_no_obs$log_gasto_per_imp <- imp
+encuesta_no_obs$TECHOVIVIENDA_imp <- imp.mult
+encuesta <- bind_rows(encuesta_obs,encuesta_no_obs)
+```
+
+## Imputación por regresión
+
+Resultados de la imputación 
+
+```{r, echo=FALSE}
+tab_missin <- prop.table(
+  table(encuesta$TECHOVIVIENDA_missin, useNA = "a")) %>% data.frame() %>%
+  rename(TECHOVIVIENDA = Var1, 
+        value_missin =Freq)
+
+tab_imp <-  prop.table(
+  table(encuesta$TECHOVIVIENDA_imp, useNA = "a")) %>% data.frame() %>%
+  rename(TECHOVIVIENDA = Var1, 
+        value_imp = Freq)
+inner_join(tab_missin, tab_imp)
+```
+
+## Imputación por regresión (Resultados antes de la imputación) 
+
+```{r,  echo=FALSE}
+prop.table( table(encuesta$TECHOVIVIENDA_missin, encuesta$Area, 
+        useNA = "a")) %>% addmargins()%>% data.frame() %>% 
+  tidyr::spread(key = "Var2",value = "Freq") %>% 
+  rename("TECHOVIVIENDA" = Var1 )
+```
+
+## Imputación por regresión (Resultados después de la imputación )
+
+
+```{r,  echo=FALSE}
+prop.table( table(encuesta$TECHOVIVIENDA_imp, encuesta$Area,
+        useNA = "a")) %>% addmargins()%>% data.frame() %>% 
+  tidyr::spread(key = "Var2",value = "Freq") %>% 
+  rename("TECHOVIVIENDA" = Var1 ) 
+```
+
+## Imputación por regresión (Resultados antes de la imputación) 
+\tiny
+```{r, echo=FALSE}
+prop.table( table(encuesta$TIPOVIVIENDA, encuesta$TECHOVIVIENDA_missin, 
+        useNA = "a")) %>% addmargins()%>% data.frame() %>% 
+  tidyr::spread(key = "Var2",value = "Freq") %>% 
+  rename("TIPOVIVIENDA" = Var1 )
+```
+
+## Imputación por regresión (Resultados después de la imputación) 
+\tiny
+```{r, echo=FALSE}
+prop.table( table(encuesta$TIPOVIVIENDA, encuesta$TECHOVIVIENDA_imp,
+        useNA = "a")) %>% addmargins()%>% data.frame() %>% 
+  tidyr::spread(key = "Var2",value = "Freq") %>% 
+  rename("TIPOVIVIENDA" = Var1 ) 
+```
+
+## Imputación por regresión
+
+```{r}
+encuesta %>% summarise(
+  log_gasto = mean(log_gasto_per),
+  log_gasto_sd = sd(log_gasto_per),
+  log_gasto_imp = mean(log_gasto_per_imp),
+  log_gasto_imp_sd = sd(log_gasto_per_imp))  %>% 
+  mutate(BR = 100*(log_gasto - log_gasto_imp)/log_gasto )
+```
+
+## Imputación por regresión
+
+```{r}
+encuesta %>%group_by(Area) %>%  summarise(
+  log_gasto = mean(log_gasto_per),
+  log_gasto_sd = sd(log_gasto_per),
+  log_gasto_imp = mean(log_gasto_per_imp),
+  log_gasto_imp_sd = sd(log_gasto_per_imp))  %>% 
+  mutate(BR = 100*(log_gasto - log_gasto_imp)/log_gasto )
+```
+
+## Imputación por regresión
+\tiny
+```{r, echo=FALSE}
+encuesta %>%group_by(TIPOVIVIENDA) %>%  summarise(
+  log_gasto = mean(log_gasto_per),
+  log_gasto_sd = sd(log_gasto_per),
+  log_gasto_imp = mean(log_gasto_per_imp),
+  log_gasto_imp_sd = sd(log_gasto_per_imp))  %>% 
+  mutate(BR = 100*(log_gasto - log_gasto_imp)/log_gasto )
+```
+
+## Imputación por regresión
+
+```{r, regresion_1, echo=TRUE, eval=FALSE}
+## Ordenando la base para gráfica 
+dat_plot7 <- tidyr::gather(
+  encuesta %>% dplyr::select(Area,TIPOVIVIENDA,log_gasto_per, 
+                             log_gasto_per_imp),
+  key = "Caso", value = "log_gasto_per2", -Area,-TIPOVIVIENDA)
+
+p1 <- ggplot(dat_plot7, aes(x = log_gasto_per2, fill = Caso)) + 
+  geom_density(alpha = 0.2) + theme_bw() +
+   theme(legend.position = "bottom") +
+  geom_vline(
+    xintercept = mean(encuesta$log_gasto_per), 
+             col = "red") +
+  geom_vline(
+    xintercept = mean(encuesta$log_gasto_per_imp), 
+             col = "blue")
+p1
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p1, filename =  "Imagenes/08_Imputacion/17_IMP6_regresion.png")
+```
+
+
+## Imputación por regresión
+
+
+![Imputación por regresión ](Imagenes/08_Imputacion/17_IMP6_regresion.png){width="300"}
+
+
+## Imputación por regresión
+
+```{r, regresion_2, echo=FALSE, eval=FALSE}
+p1 <- ggplot(dat_plot7, aes(x= Caso, y = log_gasto_per2)) + 
+   geom_hline(yintercept = mean(encuesta$log_gasto_per),
+              col = "red") +  geom_boxplot() +
+  facet_grid(Area ~ TIPOVIVIENDA) + theme_bw()
+p1
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p1, filename =  "Imagenes/08_Imputacion/18_IMP7_regresion.png")
+```
+
+
+![Imputación por regresión por tipo de vivienda y área ](Imagenes/08_Imputacion/18_IMP7_regresion.png){width="300"}
+
+## Imputación por el vecino más cercano
+
+- La imputación por el vecino más cercano es una técnica que reemplaza valores faltantes en un conjunto de datos utilizando valores de observaciones similares en función de ciertas variables.
+
+- Se basa en la premisa de que registros similares tienden a tener valores similares para una variable específica.
+
+- **Proceso:** 
+  1. **Definición de Magnitud de Distancia:** Se elige una medida de distancia, como la euclidiana o la de Manhattan.
+  2. **Identificación del Donante:** Para cada elemento con valor faltante, se identifica el registro donante más cercano en función de la distancia definida.
+  3. **Imputación:** Se sustituye el valor faltante con la información del donante identificado.
+
+## Imputación por el vecino más cercano
+
+  - **Valor de k:** Representa el número de vecinos más cercanos utilizados en la estimación.
+  - **Medida de Distancia:** La elección de la métrica de distancia afecta los resultados.
+
+- Es una técnica simple y fácil de implementar, pero su eficacia depende de la cantidad y calidad de los datos y de la elección adecuada de parámetros.
+
+- Antes de utilizar la técnica, es crucial evaluar la calidad de los datos y los resultados obtenidos para garantizar la validez de la imputación.
+
+## Imputación por el vecino más cercano
+
+- Crear nuevas columnas para imputar valores faltantes
+```{r}
+encuesta$log_gasto_per_imp <- encuesta$log_gasto_per_missin
+encuesta$TECHOVIVIENDA_imp <- encuesta$TECHOVIVIENDA_missin
+```
+
+- Filtrar observaciones con valores faltantes en la variable 'log_gasto_per_missin' 
+```{r}
+encuesta_obs <- filter(encuesta, 
+                       !is.na(log_gasto_per_missin))
+```
+
+- Filtrar observaciones sin valores en la variable 'log_gasto_per_missin' (valores faltantes)
+
+```{r}
+encuesta_no_obs <- filter(encuesta, 
+                          is.na(log_gasto_per_missin))
+
+```
+
+## Imputación por el vecino más cercano
+Iterar sobre cada fila de la encuesta_no_obs
+\small
+```{r}
+for(ii in 1:nrow(encuesta_no_obs)){
+  # Obtener el valor de log_gasto_per en la fila actual
+  Expen_ii <- encuesta_no_obs$log_gasto_per[[ii]]
+  
+  # Encontrar el índice del valor más cercano en encuesta_obs
+  don_ii <- which.min(abs(Expen_ii - encuesta_obs$log_gasto_per))
+  
+  # Asignar el valor de log_gasto_per_missin correspondiente al índice encontrado
+  encuesta_no_obs$log_gasto_per_imp[[ii]] <- 
+    encuesta_obs$log_gasto_per_missin[[don_ii]]
+  
+  # Asignar el valor de TECHOVIVIENDA_missin correspondiente al índice encontrado
+  encuesta_no_obs$TECHOVIVIENDA_imp[[ii]] <-
+    encuesta_obs$TECHOVIVIENDA_missin[[don_ii]]
+}
+
+# Combinar encuesta_obs y encuesta_no_obs en un solo dataframe
+encuesta <- bind_rows(encuesta_obs,encuesta_no_obs)
+```
+
+## Imputación por el vecino más cercano
+
+Resultados de la imputación 
+
+```{r, echo=FALSE}
+tab_missin <- prop.table(
+  table(encuesta$TECHOVIVIENDA_missin, useNA = "a")) %>% data.frame() %>%
+  rename(TECHOVIVIENDA = Var1, 
+        value_missin =Freq)
+
+tab_imp <-  prop.table(
+  table(encuesta$TECHOVIVIENDA_imp, useNA = "a")) %>% data.frame() %>%
+  rename(TECHOVIVIENDA = Var1, 
+        value_imp = Freq)
+inner_join(tab_missin, tab_imp)
+```
+
+## Imputación por el vecino más cercano (Antes)
+
+```{r, echo=FALSE}
+prop.table( table(encuesta$TECHOVIVIENDA_missin, encuesta$Area, 
+        useNA = "a")) %>% addmargins() %>% data.frame() %>% 
+  tidyr::spread(key = "Var2",value = "Freq") %>% 
+  rename("TECHOVIVIENDA" = Var1 )
+```
+
+## Imputación por el vecino más cercano (Después)
+
+
+```{r, echo=FALSE}
+prop.table( table(encuesta$TECHOVIVIENDA_imp, encuesta$Area, 
+        useNA = "a")) %>% addmargins()%>% data.frame() %>% 
+  tidyr::spread(key = "Var2",value = "Freq") %>% 
+  rename("TECHOVIVIENDA" = Var1 ) 
+```
+
+## Imputación por el vecino más cercano (Antes)
+
+
+\tiny 
+```{r, echo=FALSE}
+prop.table( table(encuesta$TECHOVIVIENDA_missin, encuesta$TIPOVIVIENDA, 
+        useNA = "a")) %>% addmargins()%>% data.frame() %>% 
+  tidyr::spread(key = "Var2",value = "Freq") %>% 
+  rename("TECHOVIVIENDA" = Var1 )
+```
+
+## Imputación por el vecino más cercano (Después) 
+
+\tiny 
+
+```{r, echo=FALSE}
+prop.table( table(encuesta$TECHOVIVIENDA_imp,encuesta$TIPOVIVIENDA,
+        useNA = "a")) %>% addmargins()%>% data.frame() %>% 
+  tidyr::spread(key = "Var2",value = "Freq") %>% 
+  rename("TECHOVIVIENDA" = Var1 ) 
+```
+
+## Imputación por el vecino más cercano
+
+```{r}
+encuesta %>% summarise(
+  log_gasto = mean(log_gasto_per),
+  log_gasto_sd = sd(log_gasto_per),
+  log_gasto_imp = mean(log_gasto_per_imp),
+  log_gasto_imp_sd = sd(log_gasto_per_imp))%>% 
+  mutate(BR = 100*(log_gasto - log_gasto_imp)/log_gasto)
+```
+
+## Imputación por el vecino más cercano
+
+```{r}
+encuesta %>%group_by(Area) %>%   summarise(
+  log_gasto = mean(log_gasto_per),
+  log_gasto_sd = sd(log_gasto_per),
+  log_gasto_imp = mean(log_gasto_per_imp),
+  log_gasto_imp_sd = sd(log_gasto_per_imp))%>% 
+  mutate(BR = 100*(log_gasto - log_gasto_imp)/log_gasto)
+```
+
+## Imputación por el vecino más cercano
+\tiny
+```{r, echo=FALSE}
+encuesta %>% group_by(TIPOVIVIENDA) %>%   summarise(
+  log_gasto = mean(log_gasto_per),
+  log_gasto_sd = sd(log_gasto_per),
+  log_gasto_imp = mean(log_gasto_per_imp),
+  log_gasto_imp_sd = sd(log_gasto_per_imp))%>% 
+  mutate(BR = 100*(log_gasto - log_gasto_imp)/log_gasto)
+```
+
+## Imputación por el vecino más cercano
+
+```{r, Vecino_1, echo=TRUE, eval=FALSE}
+## Ordenando la base para gráfica 
+dat_plot8 <- tidyr::gather(
+  encuesta %>% dplyr::select(Area,TIPOVIVIENDA,log_gasto_per, 
+                             log_gasto_per_imp),
+  key = "Caso", value = "log_gasto_per2", -Area,-TIPOVIVIENDA)
+
+p1 <- ggplot(dat_plot8, aes(x = log_gasto_per2, fill = Caso)) + 
+  geom_density(alpha = 0.2) + theme_bw() +
+   theme(legend.position = "bottom") +
+  geom_vline(
+    xintercept = mean(encuesta$log_gasto_per), 
+             col = "red") +
+  geom_vline(
+    xintercept = mean(encuesta$log_gasto_per_imp), 
+             col = "blue")
+p1
+```
+
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p1, filename =  "Imagenes/08_Imputacion/19_IMP8_vecino.png")
+```
+
+
+## Imputación por el vecino más cercano
+
+![Imputación por el  vecino más cercano  ](Imagenes/08_Imputacion/19_IMP8_vecino.png){width="300"}
+
+## Imputación por el vecino más cercano
+
+```{r, Vecino_2, echo=FALSE, eval=FALSE}
+p1 <- ggplot(dat_plot8, aes(x= Caso, y = log_gasto_per2)) + 
+   geom_hline(yintercept = mean(encuesta$log_gasto_per),
+              col = "red") +  geom_boxplot() +
+  facet_grid(Area~TIPOVIVIENDA) + theme_bw()
+p1
+```
+
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p1, filename =  "Imagenes/08_Imputacion/20_IMP9_vecino.png")
+```
+
+
+![Imputación por el  vecino más cercano por TIPOVIVIENDAo y zona  ](Imagenes/08_Imputacion/20_IMP9_vecino.png){width="300"}
+
+
+## Imputación por el vecino más cercano con regresión
+
+se presentan los pasos que se deben tener en cuenta para realizar la imputación utilizando el vecino más cernado mediante una regresión:
+
+**Paso 1**: Ajustar un modelo de regresión.
+
+
+**Paso 2**: Realizar la predicción de los valores observados y no
+    observados.
+
+**Paso 3**: Comparar las predicciones obtenidas para los valores observados
+    y no observados.
+
+**Paso 4**: Para la $i$-ésima observación identificar el donante con la
+    menor distancia al receptor.
+
+**Paso 5**: Reemplazar el valor faltante con la información proveniente del
+    donante.
+
+*NOTA* Se toma es la información observada en el donante.
+
+## Imputación por el vecino más cercano con regresión
+
+```{r, warning=FALSE, message=FALSE}
+# Imputación de valores faltantes en las columnas
+# 'log_gasto_per_imp' y 'TECHOVIVIENDA_imp'
+encuesta$log_gasto_per_imp <- encuesta$log_gasto_per_missin
+encuesta$TECHOVIVIENDA_imp <- encuesta$TECHOVIVIENDA_missin
+
+# Filtrar observaciones con valores disponibles 
+# en la variable 'log_gasto_per_missin'
+encuesta_obs <- filter(encuesta,
+                       !is.na(log_gasto_per_missin))
+
+# Filtrar observaciones con valores faltantes 
+# en la variable 'log_gasto_per_missin'
+encuesta_no_obs <- filter(encuesta,
+                          is.na(log_gasto_per_missin))
+
+# Ajuste de un modelo de regresión lineal utilizando las observaciones con 'log_gasto_per_missin' disponibles
+mod <- lm(log_gasto_per ~ Area + TIENEVEHICULOS +log_ingreso_per  ,
+          data = encuesta_obs)
+
+
+```
+
+## Imputación por el vecino más cercano con regresión
+\small
+```{r}
+# Predicciones para las observaciones con 'log_gasto_per_missin' 
+# disponibles y sin valores
+pred_Obs <- predict(mod, encuesta_obs)
+pred_no_Obs <- predict(mod, encuesta_no_obs)
+
+# Imputación de valores faltantes utilizando el vecino
+# más cercano en las predicciones
+for (ii in 1:nrow(encuesta_no_obs)) {
+  don_ii <- which.min(abs(pred_no_Obs[ii] - pred_Obs))
+  encuesta_no_obs$log_gasto_per_imp[[ii]] <-
+    encuesta_obs$log_gasto_per_missin[[don_ii]]
+  encuesta_no_obs$TECHOVIVIENDA_imp[[ii]] <-
+    encuesta_obs$TECHOVIVIENDA_missin[[don_ii]]
+}
+
+# Combinar las observaciones imputadas con las observaciones originales
+encuesta <- bind_rows(encuesta_obs, encuesta_no_obs)
+
+```
+
+## Imputación por el vecino más cercano con regresión
+
+
+Resultados de la imputación 
+
+```{r, echo=FALSE}
+tab_missin <- prop.table(
+  table(encuesta$TECHOVIVIENDA_missin, useNA = "a")) %>% data.frame() %>%
+  rename(TECHOVIVIENDA = Var1, 
+        value_missin =Freq)
+
+tab_imp <-  prop.table(
+  table(encuesta$TECHOVIVIENDA_imp, useNA = "a")) %>% data.frame() %>%
+  rename(TECHOVIVIENDA = Var1, 
+        value_imp = Freq)
+inner_join(tab_missin, tab_imp)
+```
+
+## Imputación por el vecino más cercano con regresión (Antes)
+
+
+```{r, echo=FALSE}
+prop.table( table(encuesta$TECHOVIVIENDA_missin, encuesta$Area, 
+        useNA = "a")) %>% addmargins() %>% data.frame() %>% 
+  tidyr::spread(key = "Var2",value = "Freq") %>% 
+  rename("TECHOVIVIENDA" = Var1 )
+```
+
+## Imputación por el vecino más cercano con regresión (Después)
+
+
+```{r, echo=FALSE}
+prop.table( table(encuesta$TECHOVIVIENDA_imp,encuesta$Area,
+        useNA = "a")) %>% addmargins()%>% data.frame() %>% 
+  tidyr::spread(key = "Var2",value = "Freq") %>% 
+  rename("TECHOVIVIENDA" = Var1 ) 
+```
+
+## Imputación por el vecino más cercano con regresión (Antes)
+
+\tiny 
+
+```{r, echo=FALSE}
+prop.table( table(encuesta$TECHOVIVIENDA_missin,  encuesta$TIPOVIVIENDA, 
+        useNA = "a")) %>% addmargins()%>% data.frame() %>% 
+  tidyr::spread(key = "Var2",value = "Freq") %>% 
+  rename("TIPOVIVIENDA" = Var1 )
+```
+
+## Imputación por el vecino más cercano con regresión (Después)
+
+```{r, echo=FALSE}
+prop.table( table(encuesta$TECHOVIVIENDA_imp, encuesta$TIPOVIVIENDA, 
+        useNA = "a")) %>% addmargins()%>% data.frame() %>% 
+  tidyr::spread(key = "Var2",value = "Freq") %>% 
+  rename("TIPOVIVIENDA" = Var1 ) 
+```
+
+## Imputación por el vecino más cercano con regresión
+
+```{r}
+encuesta %>% summarise(
+  log_gasto = mean(log_gasto_per),
+  log_gasto_sd = sd(log_gasto_per),
+  log_gasto_imp = mean(log_gasto_per_imp),
+  log_gasto_imp_sd = sd(log_gasto_per_imp))%>% 
+  mutate(BR = 100*(log_gasto - log_gasto_imp)/log_gasto)
+```
+
+## Imputación por el vecino más cercano con regresión
+
+```{r}
+encuesta %>%group_by(Area) %>% summarise(
+  log_gasto = mean(log_gasto_per),
+  log_gasto_sd = sd(log_gasto_per),
+  log_gasto_imp = mean(log_gasto_per_imp),
+  log_gasto_imp_sd = sd(log_gasto_per_imp))%>% 
+  mutate(BR = 100*(log_gasto - log_gasto_imp)/log_gasto)
+```
+
+## Imputación por el vecino más cercano con regresión
+
+\tiny 
+
+```{r, echo=FALSE}
+encuesta %>%group_by(TIPOVIVIENDA) %>% summarise(
+  log_gasto = mean(log_gasto_per),
+  log_gasto_sd = sd(log_gasto_per),
+  log_gasto_imp = mean(log_gasto_per_imp),
+  log_gasto_imp_sd = sd(log_gasto_per_imp))%>% 
+  mutate(BR = 100*(log_gasto - log_gasto_imp)/log_gasto)
+```
+
+## Imputación por el vecino más cercano con regresión
+
+```{r, Vecino_R1, echo=TRUE, eval=FALSE}
+## Ordenando la base para gráfica 
+dat_plot9 <- tidyr::gather(
+  encuesta %>% dplyr::select(Area, TIPOVIVIENDA, log_gasto_per, 
+                             log_gasto_per_imp),
+  key = "Caso",
+  value = "log_gasto_per2",
+  -Area,
+  -TIPOVIVIENDA
+)
+
+p1 <- ggplot(dat_plot9, aes(x = log_gasto_per2, fill = Caso)) +
+  geom_density(alpha = 0.2) + theme_bw() +
+  theme(legend.position = "bottom") +
+  geom_vline(xintercept = mean(encuesta$log_gasto_per),
+             col = "red") +
+  geom_vline(xintercept = mean(encuesta$log_gasto_per_imp),
+             col = "blue")
+p1
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p1, filename =  "Imagenes/08_Imputacion/21_IMP10_vecino_regresion.png")
+```
+
+
+
+## Imputación por el vecino más cercano con regresión
+
+![Imputación por el  vecino más cercano con regresión ](Imagenes/08_Imputacion/21_IMP10_vecino_regresion.png){width="300"}
+
+
+## Imputación por el vecino más cercano con regresión
+
+```{r, Vecino_R2, echo=FALSE, eval=FALSE}
+p1 <- ggplot(dat_plot9, aes(x= Caso, y = log_gasto_per2)) + 
+   geom_hline(yintercept = mean(encuesta$log_gasto_per),
+              col = "red") +  geom_boxplot() +
+  facet_grid(Area~TIPOVIVIENDA) + theme_bw()
+p1
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p1, filename =  "Imagenes/08_Imputacion/21_IMP11_vecino_regresion.png")
+```
+
+
+![Imputación por el  vecino más cercano con regresión ](Imagenes/08_Imputacion/21_IMP11_vecino_regresion.png){width="300"}
+
+# Introducción a la imputación múltiple.
+
+## Introducción a la imputación múltiple.
+
+- Se crean múltiples copias del conjunto de datos.
+- Los valores faltantes se imputan en cada copia usando modelos estadísticos.
+- Análisis separados en cada copia generan resultados.
+- Resultados combinados reflejan la incertidumbre causada por la imputación.
+
+**Ventajas de la Imputación Múltiple:**
+
+- Proporciona resultados más precisos y menos sesgados.
+
+- Evita la pérdida de información al no eliminar observaciones con datos faltantes.
+
+- Maneja la incertidumbre asociada con la imputación.
+
+## Introducción a la imputación múltiple.
+
+Suponga que existe un conjunto de $n$ datos que relaciona dos variables $X$,
+$Y$, a través del siguiente modelo de regresión simple:
+
+$$y_i = \beta x_i + \varepsilon_i$$ Para todo individuo $i = 1, \ldots, n.$, de
+tal manera que los errores tienen distribución normal con $E(\varepsilon) = 0$ y
+$Var(\varepsilon) = \sigma ^2$.
+
+-   Sea $Y_{Obs}$ los valores observados para un conjunto de individuos de
+    tamaño $n_1$.
+    
+-   Sea $Y_{NoObs}$ los valores **NO** observados de la variable $Y$ de tamaño
+    $n_0$, es decir, $n_1 + n_0 = n$.
+    
+-   Suponga que sí fue posible observar los valores de la covariable $X$ para
+    todos los individuos en la muestra.
+
+## Simulación 
+
+- Simular un conjunto de datos con $n = 500$ observaciones.
+
+- Pendiente de regresión ($\beta$) es 10, dispersión ($\sigma$) es 2.
+
+- Introducir 200 valores faltantes en la variable respuesta $Y$.
+
+- Uso de la función `rnorm` y `runif` en R para la simulación.
+
+## Introducción a la imputación múltiple.
+
+El algoritmo de simulación.
+
+```{r}
+generar <- function(n = 500, n_0 = 200, 
+                    beta = 10, sigma = 2){
+  x <- runif(n)
+  mu <- beta * x
+  y <- mu + rnorm(n, mean = 0, sd = sigma)
+  datos <- data.frame(x = x, y = y)
+  faltantes <- sample(n, n_0)
+  datos$faltantes <- "No"
+  datos$faltantes[faltantes] <- "Si"
+  datos$y.per <- y
+  datos$y.per[faltantes] <- NA
+  return(datos)
+}
+```
+
+## Introducción a la imputación múltiple.
+
+```{r}
+set.seed(1234)
+datos <- generar()
+head(datos,12)
+```
+
+## Introducción a la imputación múltiple.
+
+```{r, multi0, echo=TRUE,eval=FALSE}
+library(patchwork)
+p1 <- ggplot(data = datos, aes(x = x, y = y)) +
+  geom_point() +
+  geom_smooth(formula = y ~ x , method = "lm")
+
+p2 <- ggplot(data = datos, aes(x = x, y = y.per)) +
+  geom_point() +
+  geom_smooth(formula = y ~ x , method = "lm")
+
+p1 | p1
+```
+
+## Introducción a la imputación múltiple.
+
+![Imputación múltiple ](Imagenes/08_Imputacion/23_IMP12_Imputacion_multi.png){width="450"}
+
+## Introducción a la imputación múltiple.
+
+Ahora, dado el 40% de valores faltantes, es necesario imputar los datos
+faltantes. Para esto, utilizaremos la técnica de imputación múltiple propuesta
+por Rubin (1987)[^1]. La idea consiste en generar $M > 1$ conjuntos de valores
+para los datos faltantes. Al final, el valor *imputado* corresponderá al
+promedio de esos $M$ valores.
+
+_Hay varias maneras de realizar la imputación:_
+
+1.   **Ingenua**: Esta clase de imputación carece de aleatoriedad y por tanto, la
+    varianza de $\beta$ va a ser subestimada.
+2.   **Bootstrap**: Se seleccionan $m$ muestras bootstrap, y para cada una se
+    estiman los parámetros $\beta$ y $\sigma$ para generar $\dot{y}_i$. Al final
+    se promedian los $m$ valores y se imputa el valor faltante.
+3.  **Bayesiana**: Se definen las distribuciones posteriores de $\beta$ y
+    $\sigma$ para generar $M$ valores de estos parámetros y por tanto $M$
+    valores de $\dot{y}_i$. Al final se promedian los $M$ valores y se imputa el
+    valor faltante.
+    
+[^1]: Rubin, D. B. (1987). Multiple imputation for survey nonresponse.
+
+## Introducción a la imputación múltiple
+
+Dado que el interés es la estimación de la pendiente de la regresión simple
+$\beta$, entonces la esperanza estimada al utilizar la metodología de imputación
+múltiple está dada por:
+$$E(\hat{\beta} | Y_{obs}) = E(E(\hat{\beta} | Y_{obs}, Y_{mis}) | Y_{obs})$$
+
+Esta expresión es estimada por el promedio de las $M$ estimaciones puntuales de
+$\hat{\beta}$ sobre las $M$ imputaciones, dado por:
+$$\bar{\hat{\beta}} = \frac{1}{M} \sum_{m = 1} ^ M \hat{\beta}_m$$
+
+## Introducción a la imputación múltiple
+
+La varianza estimada al utilizar la metodología de imputación múltiple está dada
+por la siguiente expresión: $$
+V(\hat{\beta} | Y_{obs}) = E(V(\hat{\beta} | Y_{obs}, Y_{mis}) | Y_{obs}) +
+V(E(\hat{\beta} | Y_{obs}, Y_{mis}) | Y_{obs}) 
+$$
+
+La primera parte de la anterior expresión se estima como el promedio de las
+varianzas muestrales de $\hat{\beta}$ sobre las $M$ imputaciones, dado por:
+$$\bar{U} = \frac{1}{M} = \sum_{m = 1} ^ M Var(\beta)$$
+
+El segundo término se estima como la varianza muestral de las $M$ estimaciones
+puntuales de $\hat{\beta}$ sobre las $M$ imputaciones, dada por:
+$$B = \frac{1}{M-1} = \sum_{m = 1} ^ M (\hat{\beta}_m - \bar{\hat{\beta}})$$
+
+## Introducción a la imputación múltiple
+
+Es necesario tener en cuenta un factor de corrección (puesto que $M$ es finito).
+Por tanto, la estimación del segundo término viene dada por la siguiente
+expresión: $$(1 + \frac{1}{M}) B$$
+
+Por tanto, la varianza estimada es igual a:
+$$\hat{V}(\hat{\beta} | Y_{obs}) = \bar{U} + (1 + \frac{1}{M}) B$$
+
+```{r boot0, eval=TRUE, echo=FALSE}
+im.bootstrap <- function(datos, M = 15){
+  library(dplyr)
+  n <- nrow(datos)
+  datos1 <- na.omit(datos)
+  n1 <- nrow(datos1)
+  n0 <- n - n1
+  Ind <- is.na(datos$y.per)
+  faltantes.boot <- NULL
+  beta1 <- NULL
+  sigma1 <- NULL
+  
+  for (m in 1:M){
+    datos.m <- dplyr::sample_n(datos1, n1, replace = TRUE)
+    model1 <- lm(y ~ 0 + x, data = datos.m)
+    beta <- model1$coeff
+    sigma <- sqrt(anova(model1)[["Mean Sq"]][2])
+    faltantes.boot <- rnorm(n0, datos$x[Ind] * beta, sd = sigma)
+    datos$y.per[Ind] <-  faltantes.boot
+    model.input <- lm(y.per ~ 0 + x, data = datos)
+    beta1[m] <- model.input$coeff
+    sigma1[m] <- summary(model.input)$coeff[2]
+  }
+  beta.input <- mean(beta1)
+  u.bar <- mean(sigma1 ^ 2)
+  B <- var(beta1)
+  beta.sd <- sqrt(u.bar + B + B/M)
+  result <- list(new = datos, beta = beta.input, sd = beta.sd)
+}
+```
+
+## Imputación Bootstrap
+
+Una función que realiza esta imputación es la siguiente:
+
+```{r boot1, eval=FALSE}
+im.bootstrap <- function(datos, M = 15){
+  library(dplyr)
+  n <- nrow(datos)
+  datos1 <- na.omit(datos)
+  n1 <- nrow(datos1)
+  n0 <- n - n1
+  Ind <- is.na(datos$y.per)
+  faltantes.boot <- NULL
+  beta1 <- NULL
+  sigma1 <- NULL
+
+
+```
+**Continua...**
+
+## Imputación Bootstrap
+
+**Continuando...**
+
+\footnotesize
+
+```{r boot2, eval=FALSE}
+for (m in 1:M){
+    datos.m <- dplyr::sample_n(datos1, n1, replace = TRUE)
+    model1 <- lm(y ~ 0 + x, data = datos.m)
+    beta <- model1$coeff
+    sigma <- sqrt(anova(model1)[["Mean Sq"]][2])
+    faltantes.boot <- rnorm(n0, datos$x[Ind] * beta,
+                            sd = sigma)
+    datos$y.per[Ind] <-  faltantes.boot
+    model.input <- lm(y.per ~ 0 + x, data = datos)
+    beta1[m] <- model.input$coeff
+    sigma1[m] <- summary(model.input)$coeff[2]
+  }
+  beta.input <- mean(beta1)
+  u.bar <- mean(sigma1 ^ 2)
+  B <- var(beta1)
+  beta.sd <- sqrt(u.bar + B + B/M)
+  result <- list(new = datos, beta = beta.input,
+                 sd = beta.sd)
+}
+```
+
+## Imputación Bootstrap
+
+Al aplicar la función sobre el conjunto de datos creado, se obtienen las
+siguientes salidas:
+
+```{r, message=FALSE}
+set.seed(1234)
+datos <- generar()
+im.bootstrap(datos)$beta
+im.bootstrap(datos)$sd
+head(im.bootstrap(datos)$new, 4)
+```
+
+## Imputación Bootstrap
+
+Nótese que existe una buena dispersión en los valores imputados.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, eval=FALSE}
+nuevos <- im.bootstrap(datos)$new
+ggplot(data = nuevos, aes(x = x, y = y.per, color = faltantes)) +
+  geom_point() 
+```
+ 
+
+![Regresión después de la imputando  ](Imagenes/08_Imputacion/24_IMP13_Imputacion_multi.png){width="450"}
+
+## Imputación Bootstrap en la encuesta.
+Se ejemplificará la técnica de imputación múltiple para los datos de la encuesta
+
+```{r}
+encuesta$log_gasto_per_imp <- encuesta$log_gasto_per_missin
+encuesta$TECHOVIVIENDA_imp <- encuesta$TECHOVIVIENDA_missin
+encuesta_obs <- filter(encuesta, 
+                       !is.na(log_gasto_per_missin))
+encuesta_no_obs <- filter(encuesta, 
+                          is.na(log_gasto_per_missin))
+n0 <- nrow(encuesta_no_obs)
+n1 <- nrow(encuesta_obs)
+```
+
+## Imputación Bootstrap en la encuesta.
+
+\footnotesize
+
+```{r, warning=FALSE, message=FALSE}
+M = 10
+set.seed(1234)
+for (ii in 1:M) {
+  vp <- paste0("log_gasto_per_vp_", ii)
+  vp2 <- paste0("TECHOVIVIENDA_vp_", ii)
+  
+  encuesta_temp <- encuesta_obs %>%
+    sample_n(size = n1, replace = TRUE)
+  
+  mod <- lm(log_gasto_per ~ Area + TIPOVIVIENDA + log_ingreso_per,
+            data = encuesta_temp)
+  mod.mult <- multinom(TECHOVIVIENDA ~ Area + TIPOVIVIENDA + log_ingreso_per,
+                       data = encuesta_temp, )
+  
+  encuesta_no_obs[[vp]] <- predict(mod, encuesta_no_obs)
+  encuesta_obs[[vp]] <- encuesta_obs$log_gasto_per
+  
+  encuesta_no_obs[[vp2]] <- predict(mod.mult,
+                                    encuesta_no_obs, type = "class")
+  encuesta_obs[[vp2]] <- encuesta_obs$TECHOVIVIENDA
+}
+```
+
+## Imputación Bootstrap en la encuesta.
+Se seleccionan las variables de ingresos y sus 10 valores plausibles como se muestra a continuación:
+
+
+```{r}
+dplyr::select(encuesta_no_obs, 
+       log_gasto_per, matches("log_gasto_per_vp_"))[1:10,1:4]
+```
+
+## Imputación Bootstrap en la encuesta.
+
+```{r, echo=TRUE, eval=TRUE}
+encuesta <- bind_rows(encuesta_obs, encuesta_no_obs)
+```
+
+
+```{r, Bootstrap1, echo=TRUE, eval=FALSE}
+## Ordenando la base para gráfica 
+dat_plot10 <- tidyr::gather(
+  encuesta %>% dplyr::select(Area,TIPOVIVIENDA, 
+                             matches("log_gasto_per_vp_")),
+  key = "Caso", value = "log_gasto_per2", -Area,-TIPOVIVIENDA)
+
+p1 <- ggplot(dat_plot10, aes(x = log_gasto_per2, col = Caso)) + 
+  geom_density(alpha = 0.2) + theme_bw() +
+   theme(legend.position = "bottom") +
+  geom_density(data = encuesta ,aes(x = log_gasto_per), 
+              col =  "black", size = 1.2) 
+
+p1
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p1, filename =  "Imagenes/08_Imputacion/25_IMP14_Imputacion_multi.png")
+```
+
+
+## Imputación por el vecino más cercano
+
+![Densidad para los 10 valores plausible  ](Imagenes/08_Imputacion/25_IMP14_Imputacion_multi.png){width="300"}
+
+## Imputación Bootstrap en la encuesta.
+
+```{r, Bootstrap2, echo=TRUE, eval=FALSE}
+## Ordenando la base para gráfica 
+dat_plot11 <- tidyr::gather(
+  encuesta %>% 
+  dplyr::select(Area,TIPOVIVIENDA, TECHOVIVIENDA, 
+                matches("TECHOVIVIENDA_vp_")),
+  key = "Caso", value = "TECHOVIVIENDA2", -Area,-TIPOVIVIENDA) %>%
+  group_by(Caso,TECHOVIVIENDA2) %>% tally() %>% 
+  group_by(Caso) %>% mutate(prop = n/sum(n))
+
+p1 <- ggplot(dat_plot11, 
+        aes(x = TECHOVIVIENDA2, y = prop,
+            fill = Caso, color="red")) + 
+       geom_bar(stat="identity",
+          position = position_dodge(width = 0.5))  +
+   theme_bw() +
+   theme(legend.position = "bottom") +
+  scale_fill_manual(values = c("TECHOVIVIENDA" = "black"))
+p1
+```
+
+```{r, echo = FALSE, eval = FALSE}
+ggsave(plot = p1, filename =  "Imagenes/08_Imputacion/26_IMP15_Imputacion_multi.png")
+```
+
+## Imputación por el vecino más cercano
+
+![Regresión después de la imputando  ](Imagenes/08_Imputacion/26_IMP15_Imputacion_multi.png){width="300"}
+
+## Definir diseño de la muestra con `srvyr`
+
+Se procede a definir el diseño muestral utilizado en este ejemplo y así poder hacer la estimación de los parámetros
+
+```{r}
+library(srvyr)
+
+diseno <-  encuesta %>% as_survey_design(
+    strata = estrato,  # Id de los estratos.
+    ids = F1_A0_UPM,         # Id para las observaciones.
+    weights = Factor,      # Factores de expansión. 
+    nest = TRUE           # Valida el anidado dentro del estrato
+  )
+
+```
+
+## Estimación del promedio con valores plausibles (vp)
+
+Se estiman los ingresos medios para cada valor plausible junto con su varianza, como se muestra a continuación:
+
+```{r}
+estimacion_vp <-  diseno %>% 
+ summarise(
+   vp1 = survey_mean(log_gasto_per_vp_1, vartype = c("var")),
+   vp2 = survey_mean(log_gasto_per_vp_2, vartype = c("var")),
+   vp3 = survey_mean(log_gasto_per_vp_3, vartype = c("var")),
+   vp4 = survey_mean(log_gasto_per_vp_4, vartype = c("var")),
+   vp5 = survey_mean(log_gasto_per_vp_5, vartype = c("var")),
+   vp6 = survey_mean(log_gasto_per_vp_6, vartype = c("var")),
+   vp7 = survey_mean(log_gasto_per_vp_7, vartype = c("var")),
+   vp8 = survey_mean(log_gasto_per_vp_8, vartype = c("var")),
+   vp9 = survey_mean(log_gasto_per_vp_9, vartype = c("var")),
+   vp10 =survey_mean(log_gasto_per_vp_10, vartype = c("var")))
+```
+
+## Estimación del promedio con valores plausibles (vp)
+
+```{r, echo=FALSE}
+require(tidyr)
+(estimacion_vp %<>% tidyr::gather() %>% 
+    separate(key, c("vp", "estimacion")) %>% 
+mutate(estimacion = ifelse(is.na(estimacion), "promedio","var" )) %>% 
+  spread(estimacion,value) %>% 
+  mutate(vp = 1:10))
+```
+
+## Estimación del promedio con valores plausibles (vp)
+
+```{r, echo=TRUE}
+Media_vp = mean(estimacion_vp$promedio)
+(Ubar = mean(estimacion_vp$var))
+(B = var(estimacion_vp$promedio))
+var_vp = Ubar + (1 + 1/M) 
+(resultado <- data.frame(Media_vp, 
+                        Media_vp_se = sqrt(var_vp)))
+```
+
+## Estimación de la varianza con valores plausibles (vp)
+
+otro parámetro de interés es la varianza de los ingresos.
+
+```{r}
+estimacion_var_vp <-  diseno %>% 
+  summarise_at(vars(matches("log_gasto_per_vp")), 
+               survey_var,  vartype = "var" )
+             
+```
+
+```{r, echo = FALSE}
+(estimacion_var_vp %<>% tidyr::gather() %>%
+   separate(key, c("A", "B", "C", "D","vp", "estimacion")) %>% 
+transmute(estimacion = ifelse(is.na(estimacion), "promedio","var" ),
+        vp = as.numeric(vp), value ) %>% 
+  spread(estimacion,value))
+```
+
+## Estimación de la varianza con valores plausibles (vp)
+
+Por último, se utilizan las ecuaciones mostradas anteriormente:
+
+```{r, echo=TRUE}
+Media_var_vp <- mean(estimacion_var_vp$promedio)
+(Ubar = mean(estimacion_var_vp$var))
+(B = var(estimacion_var_vp$promedio))
+var_var_vp = Ubar + (1 + 1/M)*B 
+resultado$var_vp <- Media_var_vp
+resultado$var_vp_se <- sqrt(var_var_vp)
+```
+
+## Comparando resultados con valores plausibles (vp)
+
+```{r}
+diseno %>% summarise(Media = survey_mean(log_gasto_per), 
+                     Var = survey_var(log_gasto_per))
+resultado
+```
+
+## Estimación de la proporción con valores plausibles (vp)
+
+A continuación, se realizará la estimación de la proporción utilizando valores plausibles. 
+
+```{r}
+estimacion_prop_vp <- 
+  lapply(paste0("TECHOVIVIENDA_vp_",1:10),
+       function(vp){
+        diseno %>% 
+         group_by_at(vars(TECHOVIVIENDA = vp)) %>% 
+  summarise(prop = survey_mean(vartype = "var"),
+            .groups = "drop") %>%
+         mutate(vp = vp)
+       }) %>% bind_rows()
+  
+             
+```
+
+## Estimación de la varianza con valores plausibles (vp)
+
+Se presenta la estimación de la proporción para cada uno de los 10 valores plausibles en cada categoría de la variable:
+
+```{r, echo = FALSE}
+(estimacion_prop_vp %<>% separate(vp, c("A", "B","vp")) %>% 
+transmute(TECHOVIVIENDA,vp = as.numeric(vp), prop, prop_var)) %>%
+ filter(TECHOVIVIENDA == "1. Teja de barro")
+```
+
+## Estimación de la varianza con valores plausibles (vp)
+Por último, utilizando las ecuaciones de Rubin se obtiene la varianza estimada: 
+
+```{r, echo=TRUE}
+resultado <- estimacion_prop_vp %>% 
+  group_by(TECHOVIVIENDA) %>% 
+  summarise(prop_pv = mean(prop),
+            Ubar = mean(prop_var),
+            B = var(prop)) %>% 
+  mutate(prop_pv_var = Ubar + (1 + 1/M)*B)
+
+```
+
+## Comparando resultados con valores plausibles (Antes)
+
+```{r}
+diseno %>%  group_by(TECHOVIVIENDA ) %>% 
+  summarise(prop = survey_mean(vartype = "var"))
+```
+
+## Comparando resultados con valores plausibles (Después)
+
+```{r}
+resultado
+```
+
+
+## ¡Gracias!
+
+::: yellow
+*Email*: [andres.gutierrez\@cepal.org](mailto:andres.gutierrez@cepal.org){.email}
+:::
+
