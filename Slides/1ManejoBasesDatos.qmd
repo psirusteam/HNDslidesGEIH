@@ -353,9 +353,9 @@ dataregion1 <- data2 %>% filter(IDRegion == "01")
 
 dataregion2 <- data2 %>% filter(Region == "Norte") 
 
-# View(datahogar1)
+# View(dataregion1)
 
-# View(datahogar2)
+# View(dataregion2)
 ```
 
 ## **filter** para Zona
