@@ -301,9 +301,9 @@ confint(svymean (~YEMPLEO, diseno, deff=T)) %>% tba()
 ## Estimación de la media e intervalo de confianza del gasto
 
 ```{r}
-svymean (~COSTOALQUI, diseno, deff=T) %>% 
+svymean (~COSTOALQUI, diseno, deff=T,na.rm = TRUE) %>% 
   data.frame() %>% tba()
-confint(svymean (~COSTOALQUI, diseno, deff=T))%>% tba()
+confint(svymean (~COSTOALQUI, diseno, deff=T,na.rm = TRUE))%>% tba()
 
 ```
 
@@ -954,7 +954,7 @@ svycontrast(prom_sexo,
 ```{r}
 vcov(prom_sexo)
 # Note que el error estándar de la diff  es igual a 
-sqrt(70576 + 19051 - 2*15278)
+sqrt(207159     + 162242 - 2*86645)
 ```
 
 ## Contrastes no independiente
