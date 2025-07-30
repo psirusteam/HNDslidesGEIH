@@ -284,7 +284,7 @@ Con el uso de la función `group_by` es posible estimar un mayor numero de nivel
 ## Proporción de mujeres en la área urbana y rural
 
 ```{r,  prop_AreaM_edad, eval=FALSE, echo=TRUE}
-(prop_AreaM_Pobreza <- sub_Mujer %>% 
+(prop_AreaM_edad <- sub_Mujer %>% 
    group_by(Area, Edad_cat) %>% 
    summarise(
      prop = survey_prop(vartype = c("se","ci"))) %>%
