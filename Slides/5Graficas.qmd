@@ -76,7 +76,7 @@ diseno <-  encuesta %>% as_survey_design(
 
 ## Definir nuevas variables
 Creando nuevas variables, para ello se hace uso de la función `mutate`.
-
+\small
 ```{r, tabs1, echo=TRUE, eval=TRUE}
 diseno <- diseno %>% mutate(
   ingreso_per  = ifelse(YDISPONIBLE_PER < 0 , 0 , YDISPONIBLE_PER) ,
@@ -435,7 +435,7 @@ plot3_densy <- plot3_Ponde + geom_density(aes(fill = Area), alpha = 0.3) |
 ggsave(plot = plot3_densy, filename =  "Imagenes/05_Plots/08_Fig_Desnidad2.png")
 ```
 
-![Desnsidad para agregada al histograma por área](Imagenes/05_Plots/08_Fig_Desnidad2.png){width="200"}
+![Desnsidad para agregada al histograma por área](Imagenes/05_Plots/08_Fig_Desnidad2.png){width="150"}
 
 
 ## Agregando densidad
@@ -543,7 +543,7 @@ ggsave(plot = plot910_temp, filename =  "Imagenes/05_Plots/12_Fig_BoxPlot3.png")
 
 
 
-![Boxplot para el ingreso y gasto por área](Imagenes/05_Plots/12_Fig_BoxPlot3.png){width="200"}
+![Boxplot para el ingreso y gasto por área](Imagenes/05_Plots/12_Fig_BoxPlot3.png){width="150"}
 
 ## Boxplot 
 Comparando los ingresos y gastos por tenencia de vehículo 
@@ -571,7 +571,7 @@ ggsave(plot = plot11_temp, filename =  "Imagenes/05_Plots/13_Fig_BoxPlot4.png")
 
 ## Boxplot 
 
-![Boxplot para el ingreso y gasto por tenencia de vehículo](Imagenes/05_Plots/13_Fig_BoxPlot4.png){width="350"}
+![Boxplot para el ingreso y gasto por tenencia de vehículo](Imagenes/05_Plots/13_Fig_BoxPlot4.png){width="250"}
 
 ## Boxplot 
 Definiendo el color del relleno para Sí y No tiene vehículo. 
@@ -590,7 +590,7 @@ ggsave(plot = plot11_temp, filename =  "Imagenes/05_Plots/14_Fig_BoxPlot5.png")
 
 ## Boxplot 
 
-![Boxplot para el ingreso y gasto por tenencia de vehículo](Imagenes/05_Plots/14_Fig_BoxPlot5.png){width="350"}
+![Boxplot para el ingreso y gasto por tenencia de vehículo](Imagenes/05_Plots/14_Fig_BoxPlot5.png){width="250"}
 
 
 ## Boxplot 
@@ -618,12 +618,12 @@ ggsave(plot = plot13_Ponde|plot14_Ponde, filename =  "Imagenes/05_Plots/15_Fig_B
 
 ## Boxplot 
 
-![Boxplot para el ingreso y gasto por tipo de vivienda](Imagenes/05_Plots/15_Fig_BoxPlot6.png){width="350"}
+![Boxplot para el ingreso y gasto por tipo de vivienda](Imagenes/05_Plots/15_Fig_BoxPlot6.png){width="250"}
 
 
 ## Boxplot 
 Personalizando los coles cuando hay más de  dos categorías. 
-\scriptsize
+
 ```{r, plot13_Ponde, echo = TRUE, eval=FALSE}
 colorvivienda <- c(
   "1. Casa" = "#D6EAF8",
@@ -772,7 +772,7 @@ ggsave(plot = plot19_Ponde, filename =  "Imagenes/05_Plots/19_Fig_dispersion1.pn
 ## Scaterplot  
 Note, que este caso el parámetro `weight` no esta aportando información visual al gráfico.
 
-![Diagramas de dispersión del ingreso frente al gasto](Imagenes/05_Plots/19_Fig_dispersion1.png){width="300"}
+![Diagramas de dispersión del ingreso frente al gasto](Imagenes/05_Plots/19_Fig_dispersion1.png){width="250"}
 
 ## Scaterplot  
 El parámetro `weight` lo podemos usar controlar el tamaño de los puntos de esa forma tener un mejor panorama del comportamiento de la muestra. 
@@ -1138,7 +1138,7 @@ tmap_save(map1, filename = "Imagenes/05_Plots/31_Fig_mapa1.png",
 ## Mapas con tmap.
 El mapa resultante es: 
 
-![Mapa por departamento](Imagenes/05_Plots/31_Fig_mapa1.png){width="400"}
+![Mapa por departamento](Imagenes/05_Plots/31_Fig_mapa1.png){width="350"}
 
 
 ## Estimación de la pobreza por departamento 

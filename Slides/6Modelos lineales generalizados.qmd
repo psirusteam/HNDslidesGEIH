@@ -76,7 +76,7 @@ encuesta_hog <- encuesta_hog %>% # Base de datos.
     pobreza_LP = case_when(
       ingreso_per < 3046 & Area == "1. Urbana" ~ "1",
       ingreso_per < 1688  &
-        Area == "1. Rural" ~ "1",
+        Area == "2. Rural" ~ "1",
       TRUE ~ "0"
     ), 
      TIPOVIVIENDA = haven::as_factor(F1_A1_P1_TIPOVIVIENDA),
